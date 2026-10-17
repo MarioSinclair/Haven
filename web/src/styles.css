@@ -1132,6 +1132,7 @@ input[type='checkbox'] {
 
 .marquee {
   overflow: hidden;
+  background: var(--bg);
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   padding: 0.85rem 0;
