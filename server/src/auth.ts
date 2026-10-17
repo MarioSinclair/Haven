@@ -16,7 +16,7 @@ declare module 'express-serve-static-core' {
   }
 }
 
-const DEV_USER: AppUser = { sub: 'dev', email: null, role: 'clinician', patientId: config.demoPatientId };
+const DEV_USER: AppUser = { sub: 'dev', email: null, role: 'clinician', patientId: null };
 
 const verifyJwt = config.auth0 ? auth({ issuerBaseURL: `https://${config.auth0.domain}/`, audience: config.auth0.audience }) : null;
 
@@ -40,35 +40,49 @@ export function requireUser(req: Request, res: Response, next: NextFunction) {
   });
 }
 
-const cache = new Map<string, AppUser>();
+/** Users without a verified email yet are looked up again after this long. */
+const RECHECK_MS = 60_000;
+const cache = new Map<string, { user: AppUser; until: number }>();
+
+/** Call after a patient's email changes, so their next request picks up the new link. */
+export function forgetUsers() {
+  cache.clear();
+}
 
 async function resolveUser(req: Request): Promise<AppUser> {
   const sub = req.auth?.payload.sub;
   if (!sub) throw new HttpError(401, 'Token has no subject');
   const cached = cache.get(sub);
-  if (cached) return cached;
+  if (cached && cached.until > Date.now()) return cached.user;
 
-  const existing = await db().query('select auth0_sub, email, role, patient_id from app_users where auth0_sub = $1', [sub]);
-  let user: AppUser;
-  if (existing.rows[0]) {
-    const r = existing.rows[0];
-    user = { sub, email: r.email, role: r.role, patientId: r.patient_id };
-  } else {
-    // First sign-in: access tokens carry no email, so ask Auth0 who this is.
-    const info = await fetch(`https://${config.auth0!.domain}/userinfo`, { headers: { Authorization: req.headers.authorization ?? '' } });
-    const email = info.ok ? (((await info.json()) as { email?: string }).email ?? null) : null;
-    const clinician = !!email && config.clinicianEmails.includes(email.toLowerCase());
-    // Hackathon shortcut: every new patient account is linked to the demo patient.
-    user = { sub, email, role: clinician ? 'clinician' : 'patient', patientId: config.demoPatientId };
-    await db().query('insert into app_users (auth0_sub, email, role, patient_id) values ($1, $2, $3, $4) on conflict (auth0_sub) do nothing', [
-      sub,
-      email,
-      user.role,
-      user.patientId,
-    ]);
-  }
-  cache.set(sub, user);
+  const row = (await db().query('select email, role from app_users where auth0_sub = $1', [sub])).rows[0];
+  // Access tokens carry no email, so ask Auth0 who this is until we have a verified address.
+  const email: string | null = row?.email ?? (await verifiedEmail(req));
+  // CLINICIAN_EMAILS is re-read on every sign-in, so adding someone later still takes effect.
+  const clinician = row?.role === 'clinician' || (!!email && config.clinicianEmails.includes(email.toLowerCase()));
+  // A patient lands on the record a clinician added for their email. Hackathon fallback:
+  // anyone else signs in to the demo patient.
+  const record = !clinician && email ? (await db().query('select id from patients where lower(email) = lower($1)', [email])).rows[0] : undefined;
+  const user: AppUser = { sub, email, role: clinician ? 'clinician' : 'patient', patientId: clinician ? null : (record?.id ?? config.demoPatientId) };
+
+  await db().query(
+    `insert into app_users (auth0_sub, email, role, patient_id) values ($1, $2, $3, $4)
+     on conflict (auth0_sub) do update set email = excluded.email, role = excluded.role, patient_id = excluded.patient_id`,
+    [sub, email, user.role, user.patientId],
+  );
+  cache.set(sub, { user, until: email ? Infinity : Date.now() + RECHECK_MS });
   return user;
+}
+
+/**
+ * The email decides both the role and the patient record, and anyone can sign up with someone
+ * else's address, so only an address Auth0 has verified counts.
+ */
+async function verifiedEmail(req: Request): Promise<string | null> {
+  const info = await fetch(`https://${config.auth0!.domain}/userinfo`, { headers: { Authorization: req.headers.authorization ?? '' } });
+  if (!info.ok) return null;
+  const { email, email_verified } = (await info.json()) as { email?: string; email_verified?: boolean };
+  return email && email_verified ? email : null;
 }
 
 export function assertCanSee(user: AppUser, patientId: string) {

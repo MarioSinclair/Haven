@@ -1,6 +1,6 @@
 // Shapes that cross the wire between the app and the server.
-import type { BaselineRow, Reference } from './baseline';
-import type { Flag, SessionDay, UseDay } from './flags';
+import type { BaselineRow, Reference, ReferenceSource } from './baseline';
+import type { Flag, SessionDay, Severity, UseDay } from './flags';
 import type { Prescription } from './protocol';
 import type { SessionResult } from './session/engine';
 import type { AffectedSide, ExerciseId, Phase, Side } from './types';
@@ -70,14 +70,36 @@ export interface PatientRecord {
   surgeryType: string | null;
   surgeryDate: string | null;
   currentPhase: Phase;
+  /** The address the patient signs in with. */
+  email: string | null;
+  /** From the PT, shown to the patient before each session. */
+  planNote: string | null;
 }
 
 export type ProtocolByPhase = Record<Phase, Prescription[]>;
+
+/** Who last saved a phase's plan. */
+export interface PlanStamp {
+  setBy: string | null;
+  updatedAt: string;
+}
 
 export interface PatientBundle {
   patient: PatientRecord;
   protocol: ProtocolByPhase;
   baselines: BaselineRow[];
+  /** null while a phase still runs the placeholder protocol. */
+  planSaved: Record<Phase, PlanStamp | null>;
+}
+
+/** One row of the clinician's patient list. */
+export interface PatientSummary {
+  patient: PatientRecord;
+  lastSessionDay: string | null;
+  sessionsLast7Days: number;
+  flags: Record<Severity, number>;
+  /** Latest best on the surgery side for the first exercise in the plan, against its reference. */
+  headline: { exerciseId: ExerciseId; side: Side; latestDeg: number; referenceDeg: number; reference: ReferenceSource } | null;
 }
 
 export interface Me {

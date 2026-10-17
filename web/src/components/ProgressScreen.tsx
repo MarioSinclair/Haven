@@ -4,7 +4,7 @@ import type { BandTrace, Progress, Report, SystemStats } from '../lib/apiTypes';
 import { Dashboard, Panel } from './Dashboard';
 import { ReportView } from './ReportView';
 
-export function ProgressScreen({ patientId, geminiEnabled }: { patientId: string; geminiEnabled: boolean }) {
+export function ProgressScreen({ patientId, geminiEnabled, onBack }: { patientId: string; geminiEnabled: boolean; onBack?: () => void }) {
   const [data, setData] = useState<{ progress: Progress; bandTrace: BandTrace | null; system: SystemStats | null } | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,13 +34,22 @@ export function ProgressScreen({ patientId, geminiEnabled }: { patientId: string
   if (!data) return <div className="loading">Loading console…</div>;
 
   return (
-    <Dashboard
-      progress={data.progress}
-      bandTrace={data.bandTrace}
-      system={data.system}
-      source="live"
-      reportSlot={<ReportPanel patientId={patientId} geminiEnabled={geminiEnabled} report={report} onReport={setReport} />}
-    />
+    <>
+      {onBack && (
+        <div className="ops-back">
+          <button className="link back" onClick={onBack}>
+            ← Care plan
+          </button>
+        </div>
+      )}
+      <Dashboard
+        progress={data.progress}
+        bandTrace={data.bandTrace}
+        system={data.system}
+        source="live"
+        reportSlot={<ReportPanel patientId={patientId} geminiEnabled={geminiEnabled} report={report} onReport={setReport} />}
+      />
+    </>
   );
 }
 

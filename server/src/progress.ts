@@ -1,7 +1,7 @@
-import type { ExerciseProgress, PatientBundle, Progress, ProtocolByPhase } from '../../web/src/lib/apiTypes';
+import type { ExerciseProgress, PatientBundle, PatientSummary, PlanStamp, Progress, ProtocolByPhase } from '../../web/src/lib/apiTypes';
 import { resolveReference } from '../../web/src/lib/baseline';
-import { computeFlags, type RomDay } from '../../web/src/lib/flags';
-import { DEFAULT_PROTOCOL, GENERAL_GOAL_DEG } from '../../web/src/lib/protocol';
+import { computeFlags, daysBetween, type RomDay, type Severity } from '../../web/src/lib/flags';
+import { affectedSides, DEFAULT_PROTOCOL, GENERAL_GOAL_DEG } from '../../web/src/lib/protocol';
 import type { ExerciseId, Phase, Side } from '../../web/src/lib/types';
 import { config } from './config';
 import { db, HttpError } from './db';
@@ -16,10 +16,13 @@ export async function loadPatient(patientId: string): Promise<PatientBundle> {
   if (!row) throw new HttpError(404, `No patient ${patientId}`);
 
   const protocol: ProtocolByPhase = { 1: DEFAULT_PROTOCOL[1].prescriptions, 2: DEFAULT_PROTOCOL[2].prescriptions, 3: DEFAULT_PROTOCOL[3].prescriptions };
+  const planSaved: Record<Phase, PlanStamp | null> = { 1: null, 2: null, 3: null };
   for (const phase of [1, 2, 3] as Phase[]) {
     const rows = rx.rows.filter((r) => r.phase === phase);
     if (rows.length) {
       protocol[phase] = rows.map((r) => ({ exerciseId: r.exercise_id, ceilingDeg: r.ceiling_deg, goalDeg: r.goal_deg, reps: r.reps_target, sets: r.sets_target }));
+      const last = rows.reduce((a, b) => (a.updated_at > b.updated_at ? a : b));
+      planSaved[phase] = { setBy: last.set_by, updatedAt: new Date(last.updated_at).toISOString() };
     }
   }
 
@@ -31,9 +34,36 @@ export async function loadPatient(patientId: string): Promise<PatientBundle> {
       surgeryType: row.surgery_type,
       surgeryDate: row.surgery_date,
       currentPhase: row.current_phase,
+      email: row.email,
+      planNote: row.plan_note,
     },
     protocol,
     baselines: bl.rows.map((r) => ({ exerciseId: r.exercise_id, side: r.side, source: r.source, peakDeg: r.peak_deg, measuredAt: new Date(r.measured_at).toISOString() })),
+    planSaved,
+  };
+}
+
+/** One row of the clinician's patient list, from the same progress and flags the dashboard shows. */
+export async function summarizePatient(patientId: string): Promise<PatientSummary> {
+  const { asOf, patient, protocol, exercises, sessions, flags } = await loadProgress(patientId);
+  const counts: Record<Severity, number> = { urgent: 0, warn: 0, info: 0 };
+  for (const f of flags) counts[f.severity]++;
+
+  // The first planned exercise with data on the surgery side, else any exercise with data there.
+  const sides = affectedSides(patient.affectedSide);
+  const tracked = exercises.filter((e) => sides.includes(e.side) && e.days.length);
+  const lead = protocol[patient.currentPhase].map((p) => tracked.find((e) => e.exerciseId === p.exerciseId)).find((e) => e) ?? tracked[0];
+  const latest = lead?.days[lead.days.length - 1];
+
+  return {
+    patient,
+    lastSessionDay: sessions[sessions.length - 1]?.day ?? null,
+    sessionsLast7Days: sessions.filter((s) => daysBetween(s.day, asOf) < 7).length,
+    flags: counts,
+    headline:
+      lead && latest
+        ? { exerciseId: lead.exerciseId, side: lead.side, latestDeg: latest.bestPeakDeg, referenceDeg: lead.reference.deg, reference: lead.reference.source }
+        : null,
   };
 }
 

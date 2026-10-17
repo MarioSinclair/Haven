@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
 import { WebBluetoothBand, type BandSource, type BandStatus } from '../lib/band/band';
 import { Cmd } from '../lib/band/protocol';
-import { savePrescriptions, uploadDailyUse, type PatientProfile } from '../lib/api';
+import { uploadDailyUse, type PatientProfile } from '../lib/api';
 import type { ProtocolByPhase } from '../lib/apiTypes';
-import { buildExercisePlan, buildRangeCheckPlan, DEFAULT_PROTOCOL, EXERCISES, type Prescription, type SessionPlan } from '../lib/protocol';
+import { planRows, type PlanRow } from '../lib/carePlan';
+import { daysBetween } from '../lib/flags';
+import { affectedSides, buildExercisePlan, buildRangeCheckPlan, DEFAULT_PROTOCOL, EXERCISES, type SessionPlan } from '../lib/protocol';
 import { useReveal } from '../lib/motion';
 import type { ExerciseId, Phase, Side } from '../lib/types';
 
@@ -12,36 +14,33 @@ interface Props {
   protocol: ProtocolByPhase;
   loadError?: string;
   online: boolean;
-  isClinician: boolean;
+  /** A patient signed in: the PT's phase and limits are shown, not edited. */
+  planLocked: boolean;
   band: BandSource | null;
   bandStatus: BandStatus;
   onConnectBand: (kind: 'ble' | 'simulated') => Promise<void>;
   onDisconnectBand: () => void;
   onStart: (plan: SessionPlan, opts: { skeletonOnly: boolean; voice: boolean }) => void;
+  /** Opens the patient's progress. */
+  onProgress?: () => void;
 }
 
 type Mode = 'exercise' | 'range';
-type Row = Prescription & { included: boolean };
 
-const ALL_EXERCISES = Object.keys(EXERCISES) as ExerciseId[];
+export function SetupScreen({ patient, protocol, loadError, online, planLocked, band, bandStatus, onConnectBand, onDisconnectBand, onStart, onProgress }: Props) {
+  // After surgery a patient range-checks only the healthy arm: a check has no limit, so on the
+  // surgery side it would sidestep the PT's.
+  const postOp = !!patient.surgeryDate && daysBetween(patient.surgeryDate, new Date().toLocaleDateString('en-CA')) >= 0;
+  const blockedSides: Side[] = planLocked && postOp ? affectedSides(patient.affectedSide) : [];
 
-function rowsFor(protocol: ProtocolByPhase, phase: Phase): Row[] {
-  return ALL_EXERCISES.map((id) => {
-    const rx = protocol[phase].find((p) => p.exerciseId === id);
-    return rx ? { ...rx, included: true } : { exerciseId: id, ceilingDeg: null, goalDeg: null, reps: 10, sets: 2, included: false };
-  });
-}
-
-export function SetupScreen({ patient, protocol, loadError, online, isClinician, band, bandStatus, onConnectBand, onDisconnectBand, onStart }: Props) {
   const [phase, setPhase] = useState<Phase>(patient.currentPhase);
-  const [rows, setRows] = useState<Row[]>(() => rowsFor(protocol, patient.currentPhase));
+  const [rows, setRows] = useState<PlanRow[]>(() => planRows(protocol, patient.currentPhase));
   const [mode, setMode] = useState<Mode>('exercise');
-  const [rangeSides, setRangeSides] = useState<Side[]>(['left', 'right']);
+  const [rangeSides, setRangeSides] = useState<Side[]>(() => (['left', 'right'] as Side[]).filter((s) => !blockedSides.includes(s)));
   const [restSec, setRestSec] = useState(30);
   const [skeletonOnly, setSkeletonOnly] = useState(false);
   const [voice, setVoice] = useState(true);
   const [bandMessage, setBandMessage] = useState<string | null>(null);
-  const [rxMessage, setRxMessage] = useState<string | null>(null);
 
   const included = rows.filter((r) => r.included);
   const root = useRef<HTMLDivElement>(null);
@@ -49,10 +48,10 @@ export function SetupScreen({ patient, protocol, loadError, online, isClinician,
 
   const changePhase = (p: Phase) => {
     setPhase(p);
-    setRows(rowsFor(protocol, p));
+    setRows(planRows(protocol, p));
   };
 
-  const updateRow = (id: ExerciseId, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.exerciseId === id ? { ...r, ...patch } : r)));
+  const updateRow = (id: ExerciseId, patch: Partial<PlanRow>) => setRows((rs) => rs.map((r) => (r.exerciseId === id ? { ...r, ...patch } : r)));
 
   const toggleSide = (side: Side) => setRangeSides((s) => (s.includes(side) ? s.filter((x) => x !== side) : [...s, side]));
 
@@ -72,17 +71,6 @@ export function SetupScreen({ patient, protocol, loadError, online, isClinician,
       const n = await uploadDailyUse(patient.id, records);
       return `Saved ${n} minutes of daily use`;
     });
-
-  const saveRx = async () => {
-    setRxMessage('Saving…');
-    try {
-      const rx = included.map(({ included: _included, ...p }) => p);
-      await savePrescriptions(patient.id!, phase, rx);
-      setRxMessage(`Saved phase ${phase} for ${patient.displayName}.`);
-    } catch (err) {
-      setRxMessage(`Could not save: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  };
 
   const canStart = included.length > 0 && (mode === 'exercise' || rangeSides.length > 0);
 
@@ -106,9 +94,23 @@ export function SetupScreen({ patient, protocol, loadError, online, isClinician,
             {patient.surgeryDate ? ` · surgery ${new Date(patient.surgeryDate + 'T00:00').toLocaleDateString()}` : ''}
           </p>
         </div>
-        <span className={`badge ${online ? 'badge-ok' : loadError ? 'badge-warn' : ''}`}>{online ? 'Saving to your record' : loadError ? 'Server error' : 'Offline: not saving'}</span>
+        <div className="inline">
+          <span className={`badge ${online ? 'badge-ok' : loadError ? 'badge-warn' : ''}`}>{online ? 'Saving to your record' : loadError ? 'Server error' : 'Offline: not saving'}</span>
+          {onProgress && (
+            <button className="secondary" onClick={onProgress}>
+              Your progress
+            </button>
+          )}
+        </div>
       </header>
       {loadError && <p className="notice">Could not load the patient record ({loadError}). Using the default protocol.</p>}
+
+      {patient.planNote && (
+        <section className="card pt-note" data-reveal>
+          <h2>From your physical therapist</h2>
+          <p>{patient.planNote}</p>
+        </section>
+      )}
 
       <section className="card" data-reveal>
         <h2>Session</h2>
@@ -121,7 +123,11 @@ export function SetupScreen({ patient, protocol, loadError, online, isClinician,
           </button>
         </div>
 
-        {mode === 'exercise' ? (
+        {mode === 'exercise' && planLocked ? (
+          <p className="muted">
+            Phase {phase}: {DEFAULT_PROTOCOL[phase].label}. Your physical therapist sets your phase and limits.
+          </p>
+        ) : mode === 'exercise' ? (
           <div className="segmented" role="radiogroup" aria-label="Recovery phase">
             {([1, 2, 3] as Phase[]).map((p) => (
               <button key={p} role="radio" aria-checked={phase === p} className={phase === p ? 'selected' : ''} onClick={() => changePhase(p)}>
@@ -137,73 +143,83 @@ export function SetupScreen({ patient, protocol, loadError, online, isClinician,
             <div className="inline">
               {(['left', 'right'] as Side[]).map((side) => (
                 <label key={side} className="toggle">
-                  <input type="checkbox" checked={rangeSides.includes(side)} onChange={() => toggleSide(side)} />
+                  <input type="checkbox" checked={rangeSides.includes(side)} disabled={blockedSides.includes(side)} onChange={() => toggleSide(side)} />
                   {side === 'left' ? 'Left' : 'Right'} arm
                   {patient.affectedSide === side || patient.affectedSide === 'both' ? ' (surgery side)' : ''}
                 </label>
               ))}
             </div>
+            {blockedSides.length > 0 && <p className="fine">Your physical therapist checks the range on your surgery side after the operation.</p>}
           </>
         )}
 
-        <table className="rx">
-          <thead>
-            <tr>
-              <th>Exercise</th>
-              <th>Camera</th>
-              {mode === 'exercise' && (
-                <>
-                  <th>Limit°</th>
-                  <th>Reps</th>
-                  <th>Sets</th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.exerciseId} className={r.included ? '' : 'excluded'}>
-                <td>
-                  <label className="toggle">
-                    <input type="checkbox" checked={r.included} onChange={(e) => updateRow(r.exerciseId, { included: e.target.checked })} />
-                    {EXERCISES[r.exerciseId].name}
-                  </label>
-                </td>
-                <td className="muted">{EXERCISES[r.exerciseId].view === 'front' ? 'Facing' : 'Side-on'}</td>
+        <div className="table-scroll">
+          <table className="rx">
+            <thead>
+              <tr>
+                <th>Exercise</th>
+                <th>Camera</th>
                 {mode === 'exercise' && (
                   <>
-                    <td>
-                      <input
-                        type="number"
-                        min={30}
-                        max={180}
-                        placeholder="none"
-                        value={r.ceilingDeg ?? ''}
-                        onChange={(e) => updateRow(r.exerciseId, { ceilingDeg: e.target.value === '' ? null : Number(e.target.value) })}
-                        aria-label={`${EXERCISES[r.exerciseId].name} limit in degrees`}
-                      />
-                    </td>
-                    <td>
-                      <input type="number" min={1} max={30} value={r.reps} onChange={(e) => updateRow(r.exerciseId, { reps: Math.max(1, Number(e.target.value)) })} aria-label="Reps" />
-                    </td>
-                    <td>
-                      <input type="number" min={1} max={5} value={r.sets} onChange={(e) => updateRow(r.exerciseId, { sets: Math.max(1, Number(e.target.value)) })} aria-label="Sets" />
-                    </td>
+                    <th>Limit°</th>
+                    <th>Reps</th>
+                    <th>Sets</th>
                   </>
                 )}
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="inline">
-          <p className="fine">Limits shown are demo placeholders. A patient's real limits come from their surgeon or physical therapist.</p>
-          {isClinician && online && mode === 'exercise' && (
-            <button className="secondary" onClick={saveRx}>
-              Save as phase {phase} plan
-            </button>
-          )}
+            </thead>
+            <tbody>
+              {(planLocked ? included : rows).map((r) => (
+                <tr key={r.exerciseId} className={r.included ? '' : 'excluded'}>
+                  <td>
+                    {planLocked ? (
+                      EXERCISES[r.exerciseId].name
+                    ) : (
+                      <label className="toggle">
+                        <input type="checkbox" checked={r.included} onChange={(e) => updateRow(r.exerciseId, { included: e.target.checked })} />
+                        {EXERCISES[r.exerciseId].name}
+                      </label>
+                    )}
+                  </td>
+                  <td className="muted">{EXERCISES[r.exerciseId].view === 'front' ? 'Facing' : 'Side-on'}</td>
+                  {mode === 'exercise' && planLocked && (
+                    <>
+                      <td>{r.ceilingDeg === null ? 'None' : `${r.ceilingDeg}°`}</td>
+                      <td>{r.reps}</td>
+                      <td>{r.sets}</td>
+                    </>
+                  )}
+                  {mode === 'exercise' && !planLocked && (
+                    <>
+                      <td>
+                        <input
+                          type="number"
+                          min={30}
+                          max={180}
+                          placeholder="none"
+                          value={r.ceilingDeg ?? ''}
+                          onChange={(e) => updateRow(r.exerciseId, { ceilingDeg: e.target.value === '' ? null : Number(e.target.value) })}
+                          aria-label={`${EXERCISES[r.exerciseId].name} limit in degrees`}
+                        />
+                      </td>
+                      <td>
+                        <input type="number" min={1} max={30} value={r.reps} onChange={(e) => updateRow(r.exerciseId, { reps: Math.max(1, Number(e.target.value)) })} aria-label="Reps" />
+                      </td>
+                      <td>
+                        <input type="number" min={1} max={5} value={r.sets} onChange={(e) => updateRow(r.exerciseId, { sets: Math.max(1, Number(e.target.value)) })} aria-label="Sets" />
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        {rxMessage && <p className="fine">{rxMessage}</p>}
+        <p className="fine">
+          {planLocked
+            ? 'Set by your physical therapist. Ask them before doing more than this.'
+            : "Limits shown are demo placeholders. A patient's real limits come from their surgeon or physical therapist."}
+        </p>
       </section>
 
       <section className="card" data-reveal>
