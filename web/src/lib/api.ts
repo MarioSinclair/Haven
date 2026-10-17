@@ -1,7 +1,8 @@
 // Client for the server in /server. When the server is unreachable the app runs offline:
 // sessions still work, they just aren't saved.
-import type { BandTrace, BandTracePoint, DemoBundle, Me, PatientBundle, Progress, ProtocolByPhase, Report, SessionPayload, SystemStats } from './apiTypes';
+import type { BandTrace, BandTracePoint, DemoBundle, Me, PatientBundle, PatientSummary, Progress, ProtocolByPhase, Report, SessionPayload, SystemStats } from './apiTypes';
 import type { DailyRecord } from './band/protocol';
+import type { PatientInput } from './carePlan';
 import { DEFAULT_PROTOCOL, type Prescription } from './protocol';
 import type { SessionResult } from './session/engine';
 import type { AffectedSide, Phase } from './types';
@@ -16,6 +17,7 @@ export interface PatientProfile {
   surgeryType: string | null;
   surgeryDate: string | null;
   currentPhase: Phase;
+  planNote: string | null;
 }
 
 export const OFFLINE_PATIENT: PatientProfile = {
@@ -25,6 +27,7 @@ export const OFFLINE_PATIENT: PatientProfile = {
   surgeryType: null,
   surgeryDate: null,
   currentPhase: 1,
+  planNote: null,
 };
 
 export const defaultProtocolByPhase = (): ProtocolByPhase => ({
@@ -70,10 +73,15 @@ export async function serverStatus(): Promise<ServerStatus> {
 
 export const getMe = () => call<Me>('/me');
 
-export async function loadPatient(patientId: string): Promise<{ patient: PatientProfile; protocol: ProtocolByPhase }> {
-  const bundle = await call<PatientBundle>(`/patients/${patientId}`);
-  return { patient: bundle.patient, protocol: bundle.protocol };
-}
+export const loadPatient = (patientId: string) => call<PatientBundle>(`/patients/${patientId}`);
+
+/** Clinicians get every patient; a patient gets a list of one. */
+export const listPatients = () => call<PatientSummary[]>('/patients');
+
+export const createPatient = (input: PatientInput) => call<PatientBundle>('/patients', { method: 'POST', body: JSON.stringify(input) });
+
+export const updatePatient = (patientId: string, input: PatientInput) =>
+  call<PatientBundle>(`/patients/${patientId}`, { method: 'PUT', body: JSON.stringify(input) });
 
 export async function saveSession(patientId: string, result: SessionResult, bandTrace: BandTracePoint[]) {
   const payload: SessionPayload = {

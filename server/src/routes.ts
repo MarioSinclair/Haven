@@ -1,10 +1,10 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
-import type { SessionPayload } from '../../web/src/lib/apiTypes';
-import type { Prescription } from '../../web/src/lib/protocol';
-import { assertCanSee, assertClinician, requireUser } from './auth';
+import type { PatientSummary, SessionPayload } from '../../web/src/lib/apiTypes';
+import { parsePatientInput, parsePrescriptions, type PatientInput } from '../../web/src/lib/carePlan';
+import { assertCanSee, assertClinician, forgetUsers, requireUser } from './auth';
 import { config } from './config';
 import { db, HttpError, pool, transaction } from './db';
-import { loadPatient, loadProgress } from './progress';
+import { loadPatient, loadProgress, summarizePatient } from './progress';
 import { generateReport, latestReport } from './report';
 import { loadBandTrace, systemStats } from './telemetry';
 import { saveDailyUse, saveSession } from './sessions';
@@ -35,7 +35,8 @@ api.get(
     const bandTrace = await loadBandTrace(id);
     const system = await systemStats();
     const report = await latestReport(id);
-    return { progress, bandTrace, system, report };
+    // This endpoint is public: never send the sign-in address a clinician may have added.
+    return { progress: { ...progress, patient: { ...progress.patient, email: null } }, bandTrace, system, report };
   }),
 );
 
@@ -45,15 +46,55 @@ api.get('/system', h(async () => systemStats()));
 
 api.get('/me', h(async (req) => req.user));
 
+// Clinicians see every patient (one clinic); a patient sees only themselves.
 api.get(
   '/patients',
   h(async (req) => {
     const user = req.user!;
-    const rows =
+    const ids =
       user.role === 'clinician'
-        ? (await db().query('select id, display_name, current_phase, surgery_date from patients order by display_name')).rows
-        : (await db().query('select id, display_name, current_phase, surgery_date from patients where id = $1', [user.patientId])).rows;
-    return rows.map((r) => ({ id: r.id, displayName: r.display_name, currentPhase: r.current_phase, surgeryDate: r.surgery_date }));
+        ? (await db().query('select id from patients order by display_name')).rows.map((r) => r.id as string)
+        : user.patientId
+          ? [user.patientId]
+          : [];
+    // One patient at a time keeps connection use flat; a clinic list is small.
+    const list: PatientSummary[] = [];
+    for (const id of ids) list.push(await summarizePatient(id));
+    return list;
+  }),
+);
+
+api.post(
+  '/patients',
+  h(async (req) => {
+    assertClinician(req.user!);
+    const p = patientInput(req.body);
+    const id = await withEmailCheck(async () => {
+      const r = await db().query(
+        `insert into patients (display_name, affected_side, surgery_type, surgery_date, current_phase, email, plan_note)
+         values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+        [p.displayName, p.affectedSide, p.surgeryType, p.surgeryDate, p.currentPhase, p.email, p.planNote],
+      );
+      return r.rows[0].id as string;
+    });
+    return loadPatient(id);
+  }),
+);
+
+api.put(
+  '/patients/:id',
+  h(async (req) => {
+    assertClinician(req.user!);
+    const p = patientInput(req.body);
+    const updated = await withEmailCheck(() =>
+      db().query(
+        `update patients set display_name = $2, affected_side = $3, surgery_type = $4, surgery_date = $5, current_phase = $6, email = $7, plan_note = $8
+         where id = $1`,
+        [param(req), p.displayName, p.affectedSide, p.surgeryType, p.surgeryDate, p.currentPhase, p.email, p.planNote],
+      ),
+    );
+    if (!updated.rowCount) throw new HttpError(404, `No patient ${param(req)}`);
+    return loadPatient(param(req));
   }),
 );
 
@@ -81,8 +122,8 @@ api.put(
   h(async (req) => {
     assertClinician(req.user!);
     const phase = Number(req.params.phase);
-    const rx = req.body?.prescriptions as Prescription[] | undefined;
-    if (![1, 2, 3].includes(phase) || !Array.isArray(rx)) throw new HttpError(400, 'Expected { prescriptions: [...] } for phase 1–3');
+    if (![1, 2, 3].includes(phase)) throw new HttpError(400, 'phase must be 1, 2 or 3');
+    const rx = badRequestOnThrow(() => parsePrescriptions(req.body?.prescriptions));
     await transaction(async (c) => {
       await c.query('delete from prescriptions where patient_id = $1 and phase = $2', [param(req), phase]);
       for (const p of rx) {
@@ -144,6 +185,30 @@ api.post(
     return { report: await generateReport(param(req)) };
   }),
 );
+
+function patientInput(body: unknown): PatientInput {
+  return badRequestOnThrow(() => parsePatientInput(body));
+}
+
+function badRequestOnThrow<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    throw new HttpError(400, err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** Two records with one sign-in address would make the login ambiguous; the unique index stops it. */
+async function withEmailCheck<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    const result = await fn();
+    forgetUsers();
+    return result;
+  } catch (err) {
+    if ((err as { code?: string }).code === '23505') throw new HttpError(409, 'Another patient already signs in with that email.');
+    throw err;
+  }
+}
 
 function param(req: Request): string {
   const id = req.params.id;

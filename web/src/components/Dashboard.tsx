@@ -63,7 +63,8 @@ export function Dashboard({ progress, bandTrace, system, source, reportSlot }: P
   }
   const markers = sessions.filter((s) => s.armpitCord || s.armHeaviness).map((s) => ({ day: s.day, label: s.armHeaviness ? 'Swelling reported' : 'Cording reported' }));
   const phase1 = sessions.filter((s) => s.phase === 1);
-  const phase1Limit = Math.min(...DEFAULT_PROTOCOL[1].prescriptions.map((p) => p.ceilingDeg ?? Infinity));
+  // The limit the PT saved for phase 1, not the placeholder.
+  const phase1Limit = Math.min(...progress.protocol[1].map((p) => p.ceilingDeg ?? Infinity));
   const limit =
     phase1.length && Number.isFinite(phase1Limit)
       ? { value: phase1Limit, fromDay: phase1[0].day, toDay: phase1[phase1.length - 1].day, label: `${phase1Limit}° LIMIT` }
