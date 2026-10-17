@@ -2,7 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import type { Symptoms } from '../lib/session/engine';
 import { listenForPain, voiceInputSupported } from '../lib/voice/painVoice';
 
-export function PainPrompt({ onSubmit }: { onSubmit: (rating: number) => void }) {
+interface PainPromptProps {
+  onSubmit: (rating: number) => void;
+  /** The patient chose voice on an earlier prompt, so listen without waiting for a tap. */
+  autoListen: boolean;
+  /** Called when the patient taps "Answer by voice", their consent for later prompts. */
+  onVoiceChosen: () => void;
+}
+
+export function PainPrompt({ onSubmit, autoListen, onVoiceChosen }: PainPromptProps) {
   const [listening, setListening] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const stop = useRef<(() => void) | null>(null);
@@ -24,6 +32,17 @@ export function PainPrompt({ onSubmit }: { onSubmit: (rating: number) => void })
     );
   };
 
+  // Wait for the coach to finish asking, or the microphone hears "from zero to ten" as the answer.
+  useEffect(() => {
+    if (!autoListen || !voiceInputSupported()) return;
+    const timer = setInterval(() => {
+      if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) return;
+      clearInterval(timer);
+      listen();
+    }, 250);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <div className="modal" role="dialog" aria-labelledby="pain-title">
       <h2 id="pain-title">How much pain did you feel during that set?</h2>
@@ -39,7 +58,14 @@ export function PainPrompt({ onSubmit }: { onSubmit: (rating: number) => void })
         <span>Worst imaginable</span>
       </div>
       {voiceInputSupported() && (
-        <button className="secondary" onClick={listen} disabled={listening}>
+        <button
+          className="secondary"
+          onClick={() => {
+            onVoiceChosen();
+            listen();
+          }}
+          disabled={listening}
+        >
           {listening ? 'Listening…' : 'Answer by voice'}
         </button>
       )}
