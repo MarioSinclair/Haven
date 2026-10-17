@@ -134,4 +134,27 @@ describe('SessionEngine', () => {
     expect(d.engine.getSnapshot().stage).toBe('done');
     expect(d.engine.result.sets[0].reps).toHaveLength(1);
   });
+
+  it("doesn't count a rep whose top the camera lost, but shrugs off a dropped frame", () => {
+    const d = new Driver(new SessionEngine(plan({ reps: 1 })));
+    d.hold(3000, () => frame(10));
+    /** A raise like Driver.rep, with the camera seeing nothing whenever `hidden` says so. */
+    const raise = (peak: number, hidden: (deg: number, elapsed: number) => boolean) => {
+      const start = d.t;
+      const dur = 2400;
+      const at = (t: number) => 10 + ((peak - 10) * (1 - Math.cos((2 * Math.PI * (t - start)) / dur))) / 2;
+      d.hold(dur + 600, (t) => (t - start > dur ? frame(10) : hidden(at(t), t - start) ? null : frame(at(t))));
+    };
+    const repEvents = () => d.events.filter((e) => e.type === 'rep');
+
+    // A true 120° rep, lost above 70° with no band: it used to save as a clean ~70° rep.
+    raise(120, (deg) => deg > 70);
+    expect(repEvents()).toHaveLength(0);
+    expect(d.cues()).toContain('uncounted');
+    expect(d.engine.getSnapshot().message).toMatch(/didn't count/);
+
+    raise(80, (_deg, elapsed) => elapsed >= 1200 && elapsed < 1200 + FRAME_MS);
+    expect(repEvents()).toHaveLength(1);
+    expect(d.engine.getSnapshot().stage).toBe('pain');
+  });
 });
