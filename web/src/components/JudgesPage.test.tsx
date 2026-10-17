@@ -6,7 +6,7 @@ describe('JudgesPage', () => {
   const html = renderToString(<JudgesPage />);
 
   it('renders every section', () => {
-    for (const heading of ['The problem', 'Try it in two minutes', 'How it works', 'Architecture', 'Privacy', 'Prize tracks', 'Honest notes', 'Team']) {
+    for (const heading of ['Problem', 'See it work, no camera needed', 'What the physical therapist sees', 'How it works', 'Prize tracks', 'Privacy and honest notes', 'Team']) {
       expect(html).toContain(heading);
     }
   });
@@ -14,7 +14,6 @@ describe('JudgesPage', () => {
   it('links to the live session and hides links that are not filled in yet', () => {
     expect(html).toContain('href="/"');
     for (const track of ['Gemini', 'Tiger Data', 'Auth0', 'GoDaddy', 'Hardware']) expect(html).toContain(track);
-    expect(html).not.toContain('Demo video');
     expect(html).not.toContain('Source code');
   });
 });

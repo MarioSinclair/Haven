@@ -7,7 +7,8 @@
     "dev": "node --env-file-if-exists=.env --import tsx --watch src/index.ts",
     "start": "node --env-file-if-exists=.env --import tsx src/index.ts",
     "db:setup": "node --env-file-if-exists=.env --import tsx scripts/db-setup.ts",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "export-demo": "node --env-file-if-exists=.env --import tsx scripts/export-demo.ts"
   },
   "dependencies": {
     "@google/genai": "^2.27.0",

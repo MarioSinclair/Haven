@@ -4,6 +4,7 @@ import { App } from './App';
 import { AuthGate } from './components/AuthGate';
 import { JudgesPage } from './components/JudgesPage';
 import { APP_NAME } from './lib/brand';
+import '@fontsource-variable/jetbrains-mono';
 import '@fontsource-variable/urbanist';
 import './styles.css';
 

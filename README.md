@@ -16,7 +16,8 @@ web/                          React + Vite app, runs in Chrome
   src/lib/flags.ts            the deterministic flag rules (shared with the server)
   src/lib/numberGuard.ts      checks every number Gemini writes against the data
   src/lib/baseline.ts         what progress is measured against (pre-op > healthy arm > general goal)
-  src/components/             screens; JudgesPage is served at /judges
+  src/components/             screens: Dashboard (PT console), SimulatedSession (judges replay),
+                              JudgesPage (/judges), AmbientBackground
 server/                       Express API: Auth0, Tiger Data, Gemini
 db/
   migrations/001_schema.sql   plain Postgres schema
@@ -56,6 +57,16 @@ Vite forwards `/api` to the server. Missing pieces switch off cleanly: no Auth0 
 3. List clinician emails in `CLINICIAN_EMAILS`. Everyone else signs in as a patient linked to the demo patient.
 
 **Gemini.** Get a key from Google AI Studio and set `GEMINI_API_KEY`. `GEMINI_MODEL` defaults to `gemini-3.8-flash`. Requests go out with storage off.
+
+## The judges page (/judges)
+
+Built so a judge can understand and evaluate the project from the link alone: a TL;DR, the demo video, a replay that runs the real session engine on a scripted set, the PT console on the demo patient, and a screenshot gallery. Before judging, fill in the constants at the top of `web/src/components/JudgesPage.tsx`:
+
+- `DEMO_VIDEO`: a YouTube or Vimeo link, or an mp4 dropped into `web/public/judges/` (e.g. `'/judges/demo.mp4'`).
+- `GALLERY`: screenshots and photos of you doing the demo, also in `web/public/judges/`.
+- `TEAM`, `LIVE_DOMAIN`, `REPO_URL`.
+
+The console section reads the public, read-only `/api/demo` endpoint (the simulated patient only). If the server is unreachable it falls back to `web/src/fixtures/demo.json`. Once you're on Tiger and have generated a Gemini report, refresh that snapshot with `cd server && npm run export-demo`, so the fallback shows Tiger's stats and the report too.
 
 ## Deploy (GoDaddy domain)
 

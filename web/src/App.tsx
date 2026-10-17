@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AmbientBackground } from './components/AmbientBackground';
 import { useAuthInfo } from './components/AuthGate';
 import { Logo } from './components/Logo';
 import { ProgressScreen } from './components/ProgressScreen';
@@ -92,6 +93,7 @@ export function App() {
 
   return (
     <>
+      <AmbientBackground />
       <nav className="topbar">
         <a href="/" className="brand" aria-label="Home">
           <Logo />

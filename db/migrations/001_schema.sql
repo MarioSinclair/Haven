@@ -110,6 +110,7 @@ create table band_samples (
   rate_dps real
 );
 create index band_samples_patient_time on band_samples (patient_id, t desc);
+create index band_samples_session on band_samples (session_id, t);
 
 create table symptom_logs (
   id uuid primary key default gen_random_uuid(),

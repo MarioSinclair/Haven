@@ -1,6 +1,6 @@
 // Client for the server in /server. When the server is unreachable the app runs offline:
 // sessions still work, they just aren't saved.
-import type { BandTracePoint, Me, PatientBundle, Progress, ProtocolByPhase, Report, SessionPayload } from './apiTypes';
+import type { BandTrace, BandTracePoint, DemoBundle, Me, PatientBundle, Progress, ProtocolByPhase, Report, SessionPayload, SystemStats } from './apiTypes';
 import type { DailyRecord } from './band/protocol';
 import { DEFAULT_PROTOCOL, type Prescription } from './protocol';
 import type { SessionResult } from './session/engine';
@@ -96,3 +96,14 @@ export const getProgress = (patientId: string) => call<Progress>(`/patients/${pa
 export const latestReport = async (patientId: string) => (await call<{ report: Report | null }>(`/patients/${patientId}/reports/latest`)).report;
 
 export const generateReport = async (patientId: string) => (await call<{ report: Report }>(`/patients/${patientId}/reports`, { method: 'POST' })).report;
+
+export const getBandTrace = async (patientId: string) => (await call<{ trace: BandTrace | null }>(`/patients/${patientId}/band-trace`)).trace;
+
+export const getSystem = () => call<SystemStats>('/system');
+
+/** Public, no sign-in: the simulated demo patient for the judges page. */
+export async function getDemo(): Promise<DemoBundle> {
+  const res = await fetch('/api/demo');
+  if (!res.ok) throw new Error(`Server error ${res.status}`);
+  return res.json();
+}

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { daysBetween } from '../lib/flags';
 import { gsap, reducedMotion, useGSAP } from '../lib/motion';
 
@@ -146,6 +146,9 @@ export function LineChart({
   unit,
   band,
   limit,
+  phases,
+  markers,
+  showTitle = true,
   height = 260,
 }: {
   title: string;
@@ -157,6 +160,12 @@ export function LineChart({
   band?: { from: number; to: number; label: string };
   /** Horizontal limit drawn only across the days it applied. */
   limit?: { value: number; fromDay: string; toDay: string; label: string };
+  /** Shaded spans behind the data, e.g. recovery phases. */
+  phases?: { fromDay: string; toDay: string; label: string }[];
+  /** Pins along the top edge, e.g. days a symptom was reported. */
+  markers?: { day: string; label: string }[];
+  /** Panels already show a title in their header. */
+  showTitle?: boolean;
   height?: number;
 }) {
   const size = useWidth();
@@ -171,8 +180,8 @@ export function LineChart({
   useGSAP(
     () => {
       if (reducedMotion()) return;
-      gsap.from('.series-line', { drawSVG: '0%', duration: 1.6, ease: 'power2.out', stagger: 0.2 });
-      gsap.from('.dot, .end-label', { autoAlpha: 0, duration: 0.4, delay: 1.2 });
+      gsap.fromTo('.series-line', { drawSVG: '0%' }, { drawSVG: '100%', duration: 1.6, ease: 'power2.out', stagger: 0.2 });
+      gsap.fromTo('.dot, .end-label', { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.4, delay: 1.2 });
     },
     { scope: hover.ref },
   );
@@ -180,7 +189,7 @@ export function LineChart({
   return (
     <figure className="chart">
       <figcaption>
-        <span className="chart-title">{title}</span>
+        {showTitle && <span className="chart-title">{title}</span>}
         {series.length > 1 && (
           <span className="legend">
             {series.map((s) => (
@@ -194,6 +203,19 @@ export function LineChart({
       </figcaption>
       <div className="chart-plot" ref={size.ref}>
         <svg ref={hover.ref} viewBox={`0 0 ${f.w} ${height}`} onPointerMove={hover.onMove} onPointerLeave={hover.onLeave} role="img" aria-label={title}>
+          {phases?.map((p, i) => {
+            const half = f.days.length > 1 ? (f.x(f.days[1]) - f.x(f.days[0])) / 2 : 8;
+            const x0 = Math.max(M.left, f.x(p.fromDay) - half);
+            const x1 = Math.min(f.w - M.right, f.x(p.toDay) + half);
+            return (
+              <g key={p.label} className={`phase phase-${i % 2}`}>
+                <rect x={x0} width={Math.max(0, x1 - x0)} y={M.top} height={height - M.top - M.bottom} />
+                <text x={x0 + 6} y={M.top + 12}>
+                  {p.label}
+                </text>
+              </g>
+            );
+          })}
           <Axes f={f} yTicks={yTicks} unit={unit} />
           {band && (
             <g className="ref-band">
@@ -227,6 +249,12 @@ export function LineChart({
               </g>
             );
           })}
+          {markers?.map((m) => (
+            <g key={m.day} className="marker">
+              <line x1={f.x(m.day)} x2={f.x(m.day)} y1={M.top} y2={height - M.bottom - 9} />
+              <path d={`M${f.x(m.day) - 5},${height - M.bottom - 1} h10 l-5,-8 z`} />
+            </g>
+          ))}
           {series.length <= 4 &&
             endLabels(series, f, unit).map((l) => (
               <text key={l.id} x={f.w - M.right + 10} y={l.y} dy="0.32em" className="end-label">
@@ -245,6 +273,11 @@ export function LineChart({
                 </span>
               );
             })}
+            {markers?.filter((m) => m.day === hover.day).map((m) => (
+              <span key={m.label} className="tip-marker">
+                {m.label}
+              </span>
+            ))}
           </Tooltip>
         )}
       </div>
@@ -278,6 +311,7 @@ export function BarChart({
   yTicks,
   unit,
   detail,
+  showTitle = true,
   height = 200,
 }: {
   title: string;
@@ -287,6 +321,7 @@ export function BarChart({
   yTicks: number[];
   unit: string;
   detail?: (day: string) => string | null;
+  showTitle?: boolean;
   height?: number;
 }) {
   const size = useWidth();
@@ -304,16 +339,18 @@ export function BarChart({
   useGSAP(
     () => {
       if (reducedMotion()) return;
-      gsap.from('.bar', { scaleY: 0, transformOrigin: '50% 100%', duration: 0.9, ease: 'expo.out', stagger: 0.025 });
+      gsap.fromTo('.bar', { scaleY: 0, transformOrigin: '50% 100%' }, { scaleY: 1, duration: 0.9, ease: 'expo.out', stagger: 0.025 });
     },
     { scope: hover.ref },
   );
 
   return (
     <figure className="chart">
-      <figcaption>
-        <span className="chart-title">{title}</span>
-      </figcaption>
+      {showTitle && (
+        <figcaption>
+          <span className="chart-title">{title}</span>
+        </figcaption>
+      )}
       <div className="chart-plot" ref={size.ref}>
         <svg ref={hover.ref} viewBox={`0 0 ${f.w} ${height}`} onPointerMove={hover.onMove} onPointerLeave={hover.onLeave} role="img" aria-label={title}>
           {/* The title names the unit; a word-long unit on every tick would crowd the bars. */}
@@ -343,5 +380,165 @@ export function BarChart({
         rows={points.map((p) => [shortDay(p.day), `${Math.round(p.value)} ${unit.trim()}`])}
       />
     </figure>
+  );
+}
+
+/** Seconds as m:ss. */
+function clock(sec: number): string {
+  return `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+}
+
+/**
+ * A raw sensor trace drawn like a monitor strip: a readable window of the session, with an
+ * overview of the whole session underneath. Click or drag the overview to move the window.
+ */
+export function TraceChart({
+  points,
+  color = SERIES_COLORS[0],
+  yMax = 180,
+  height = 210,
+  windowS = 60,
+  label,
+}: {
+  points: { s: number; deg: number }[];
+  color?: string;
+  yMax?: number;
+  height?: number;
+  windowS?: number;
+  label: string;
+}) {
+  const size = useWidth();
+  const w = size.w;
+  const total = Math.max(1, points[points.length - 1]?.s ?? 1);
+  const win = Math.min(windowS, total);
+  const [start, setStart] = useState(0);
+  const innerW = w - M.left - 16;
+  const innerH = height - M.top - M.bottom;
+  const x = (sec: number) => M.left + ((sec - start) / win) * innerW;
+  const y = (deg: number) => M.top + innerH - (Math.min(deg, yMax) / yMax) * innerH;
+  const svg = useRef<SVGSVGElement>(null);
+  const overview = useRef<SVGSVGElement>(null);
+  const clipId = `trace-clip-${useId().replace(/:/g, '')}`;
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  useGSAP(
+    () => {
+      if (reducedMotion()) return;
+      gsap.fromTo('.trace-line', { drawSVG: '0%' }, { drawSVG: '100%', duration: 1.8, ease: 'power1.inOut' });
+      gsap.fromTo('.trace-area', { autoAlpha: 0 }, { autoAlpha: 1, duration: 1, delay: 1.2 });
+    },
+    { scope: svg, dependencies: [points.length] },
+  );
+
+  const visible = points.filter((p) => p.s >= start - 1 && p.s <= start + win + 1);
+  const line = visible.map((p, i) => `${i ? 'L' : 'M'}${x(p.s).toFixed(1)},${y(p.deg).toFixed(1)}`).join('');
+  const area = visible.length ? `${line} L${x(visible[visible.length - 1].s)},${y(0)} L${x(visible[0].s)},${y(0)} Z` : '';
+  const ticks = Array.from({ length: 7 }, (_, i) => start + (win / 6) * i);
+  const hovered = hoverIdx === null ? null : points[hoverIdx];
+
+  const onMove = (e: React.PointerEvent) => {
+    const box = svg.current!.getBoundingClientRect();
+    const sec = start + ((((e.clientX - box.left) / box.width) * w - M.left) / innerW) * win;
+    let best = 0;
+    for (let i = 0; i < points.length; i++) if (Math.abs(points[i].s - sec) < Math.abs(points[best].s - sec)) best = i;
+    setHoverIdx(points[best].s >= start && points[best].s <= start + win ? best : null);
+  };
+
+  // Overview: whole session, small.
+  const oh = 34;
+  const ox = (sec: number) => M.left + (sec / total) * innerW;
+  const oy = (deg: number) => oh - 3 - (Math.min(deg, yMax) / yMax) * (oh - 6);
+  const overviewPath = points.map((p, i) => `${i ? 'L' : 'M'}${ox(p.s).toFixed(1)},${oy(p.deg).toFixed(1)}`).join('');
+  const seek = (e: React.PointerEvent) => {
+    const box = overview.current!.getBoundingClientRect();
+    const sec = ((((e.clientX - box.left) / box.width) * w - M.left) / innerW) * total;
+    setStart(Math.max(0, Math.min(total - win, sec - win / 2)));
+  };
+
+  return (
+    <div className="chart-plot" ref={size.ref}>
+      <svg ref={svg} viewBox={`0 0 ${w} ${height}`} role="img" aria-label={label} onPointerMove={onMove} onPointerLeave={() => setHoverIdx(null)}>
+        <g className="axes">
+          {[0, 45, 90, 135, 180]
+            .filter((t) => t <= yMax)
+            .map((t) => (
+              <g key={t}>
+                <line x1={M.left} x2={w - 16} y1={y(t)} y2={y(t)} className="grid" />
+                <text x={M.left - 6} y={y(t)} dy="0.32em" textAnchor="end">
+                  {t}°
+                </text>
+              </g>
+            ))}
+          {ticks.map((t) => (
+            <text key={t} x={x(t)} y={height - 8} textAnchor="middle">
+              {clock(t)}
+            </text>
+          ))}
+        </g>
+        <clipPath id={clipId}>
+          <rect x={M.left} y={0} width={innerW} height={height} />
+        </clipPath>
+        <g clipPath={`url(#${clipId})`}>
+          <path d={area} className="trace-area" fill={color} />
+          <path d={line} className="trace-line" stroke={color} />
+        </g>
+        {hovered && (
+          <>
+            <line className="crosshair" x1={x(hovered.s)} x2={x(hovered.s)} y1={M.top} y2={height - M.bottom} />
+            <circle cx={x(hovered.s)} cy={y(hovered.deg)} r={4} fill={color} className="dot" />
+          </>
+        )}
+      </svg>
+      {hovered && (
+        <div className="chart-tip" style={{ left: `${(x(hovered.s) / w) * 100}%`, transform: `translateX(${x(hovered.s) / w > 0.6 ? '-105%' : '5%'})` }}>
+          <strong>{clock(hovered.s)}</strong>
+          <span>{Math.round(hovered.deg)}° arm elevation</span>
+        </div>
+      )}
+      {total > win && (
+        <svg
+          ref={overview}
+          className="trace-overview"
+          viewBox={`0 0 ${w} ${oh}`}
+          role="slider"
+          aria-label="Move the window through the session"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(total - win)}
+          aria-valuenow={Math.round(start)}
+          aria-valuetext={`${clock(start)} to ${clock(start + win)}`}
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowRight') setStart((s0) => Math.min(total - win, s0 + win / 4));
+            if (e.key === 'ArrowLeft') setStart((s0) => Math.max(0, s0 - win / 4));
+          }}
+          onPointerDown={(e) => {
+            (e.currentTarget as Element).setPointerCapture(e.pointerId);
+            seek(e);
+          }}
+          onPointerMove={(e) => {
+            if (e.buttons) seek(e);
+          }}
+        >
+          <path d={overviewPath} className="overview-line" />
+          <rect x={ox(start)} y={1} width={ox(start + win) - ox(start)} height={oh - 2} className="overview-window" rx={3} />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+/** A tiny trend line for stat tiles: history in gray, the latest point in the accent. */
+export function Sparkline({ values, width = 96, height = 26 }: { values: number[]; width?: number; height?: number }) {
+  if (values.length < 2) return null;
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const x = (i: number) => 2 + (i / (values.length - 1)) * (width - 6);
+  const y = (v: number) => height - 3 - ((v - lo) / Math.max(1e-6, hi - lo)) * (height - 6);
+  const d = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  return (
+    <svg className="spark" width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <path d={d} />
+      <circle cx={x(values.length - 1)} cy={y(values[values.length - 1])} r={3} />
+    </svg>
   );
 }

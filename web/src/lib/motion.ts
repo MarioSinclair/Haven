@@ -7,6 +7,9 @@ import type { RefObject } from 'react';
 
 gsap.registerPlugin(useGSAP, DrawSVGPlugin, ScrollTrigger, SplitText);
 
+// Use fromTo with explicit end values, not from(): when data loads twice (React StrictMode, a
+// refetch), a second from() reads the half-faded state as its end value and freezes there.
+
 /** Matches the CSS --ease, cubic-bezier(0.22, 1, 0.36, 1). */
 export const EASE = 'expo.out';
 

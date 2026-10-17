@@ -7,7 +7,7 @@ export function Logo({ size = 22 }: { size?: number }) {
   useGSAP(
     () => {
       if (reducedMotion()) return;
-      gsap.from('path', { drawSVG: '0%', duration: 1.4, ease: 'power2.inOut', delay: 0.15 });
+      gsap.fromTo('path', { drawSVG: '0%' }, { drawSVG: '100%', duration: 1.4, ease: 'power2.inOut', delay: 0.15 });
     },
     { scope: ref },
   );

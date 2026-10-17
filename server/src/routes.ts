@@ -6,6 +6,7 @@ import { config } from './config';
 import { db, HttpError, pool, transaction } from './db';
 import { loadPatient, loadProgress } from './progress';
 import { generateReport, latestReport } from './report';
+import { loadBandTrace, systemStats } from './telemetry';
 import { saveDailyUse, saveSession } from './sessions';
 
 export const api = Router();
@@ -24,7 +25,23 @@ api.get(
   })),
 );
 
+// Public and read-only: the simulated demo patient, so the judges page works from a bare link.
+api.get(
+  '/demo',
+  h(async () => {
+    const id = config.demoPatientId;
+    // One after another: it's a handful of small queries, and it keeps connection use flat.
+    const progress = await loadProgress(id);
+    const bandTrace = await loadBandTrace(id);
+    const system = await systemStats();
+    const report = await latestReport(id);
+    return { progress, bandTrace, system, report };
+  }),
+);
+
 api.use(requireUser);
+
+api.get('/system', h(async () => systemStats()));
 
 api.get('/me', h(async (req) => req.user));
 
@@ -101,6 +118,14 @@ api.get(
   h(async (req) => {
     assertCanSee(req.user!, param(req));
     return loadProgress(param(req), typeof req.query.asOf === 'string' ? req.query.asOf : undefined);
+  }),
+);
+
+api.get(
+  '/patients/:id/band-trace',
+  h(async (req) => {
+    assertCanSee(req.user!, param(req));
+    return { trace: await loadBandTrace(param(req)) };
   }),
 );
 
