@@ -36,6 +36,7 @@ export async function loadPatient(patientId: string): Promise<PatientBundle> {
       currentPhase: row.current_phase,
       email: row.email,
       planNote: row.plan_note,
+      reminderMinutes: row.reminder_minutes ?? 0,
     },
     protocol,
     baselines: bl.rows.map((r) => ({ exerciseId: r.exercise_id, side: r.side, source: r.source, peakDeg: r.peak_deg, measuredAt: new Date(r.measured_at).toISOString() })),

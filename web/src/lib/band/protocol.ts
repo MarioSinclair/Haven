@@ -56,6 +56,10 @@ export interface BandSample {
   calibrated: boolean;
   dailyMode: boolean;
   sensorOk: boolean;
+  /** The limit the band itself is warning at, as it reports it: null when off, undefined when the band has no limit feature. */
+  limitDeg?: number | null;
+  /** The band reports the arm above its limit. */
+  overLimit?: boolean;
 }
 
 export interface DailyRecord {
@@ -123,16 +127,25 @@ function clampInt16(n: number): number {
   return Math.max(-32768, Math.min(32767, n));
 }
 
-// The band as built speaks plain text over the Nordic UART service instead. Each line is
-//   first field, elevation°, rate °/s, gyro x, gyro y, gyro z, zeroed (1 or 0)
-// and writing "z" makes the arm's current position 0°. It sends no battery level or orientation
-// and keeps no daily-use log. The app reads the elevation, rate and zeroed fields.
+// The band as built speaks plain text over the Nordic UART service instead, at 20 Hz:
+//   ms, elevation°, rate °/s, gyro x, gyro y, gyro z, zeroed (1/0), limit° (0 = off), over (1/0)
+// Earlier firmware stopped after `zeroed`. Commands are text writes:
+//   z        zero: the arm's current position (relaxed at the side) becomes 0°
+//   c<deg>   safe limit; the buzzer beeps faster from 10° below it and alarms above it. 0 = off.
+//   r<min>   chirp after this many minutes without raising the arm above 60°. 0 = off.
+//   m1 / m0  mute / unmute
+//   b        test beep
+// The band saves the limit and reminder, but forgets the zero at power-off, and it only warns
+// once zeroed. It sends no battery level or orientation and keeps no daily-use log.
 export const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 /** Band → app, notify. */
 export const UART_TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 /** App → band, write. */
 export const UART_RX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 export const UART_ZERO = 'z';
+export const UART_BEEP = 'b';
+export const uartLimit = (deg: number | null) => `c${deg === null ? 0 : Math.round(deg)}`;
+export const uartReminder = (minutes: number) => `r${Math.max(0, Math.round(minutes))}`;
 
 /** One line from the UART band, or null if it isn't a whole, well-formed line. */
 export function parseUartLine(line: string): BandSample | null {
@@ -141,7 +154,7 @@ export function parseUartLine(line: string): BandSample | null {
   const elevationDeg = Number(p[1]);
   const rateDps = Number(p[2]);
   if (p[1].trim() === '' || !Number.isFinite(elevationDeg) || !Number.isFinite(rateDps)) return null;
-  return {
+  const sample: BandSample = {
     boardMs: Number(p[0]) || 0,
     elevationDeg,
     rateDps,
@@ -151,6 +164,12 @@ export function parseUartLine(line: string): BandSample | null {
     dailyMode: false,
     sensorOk: true,
   };
+  if (p.length >= 9) {
+    const limit = Number(p[7]);
+    sample.limitDeg = Number.isFinite(limit) && limit > 0 ? limit : null;
+    sample.overLimit = p[8].trim() === '1';
+  }
+  return sample;
 }
 
 /**
@@ -159,12 +178,15 @@ export function parseUartLine(line: string): BandSample | null {
  */
 export class LineSplitter {
   private pending = '';
+  private newlines = false;
 
   push(chunk: string): string[] {
+    if (chunk.includes('\n')) this.newlines = true;
     const parts = (this.pending + chunk).split(/\r?\n/);
     this.pending = parts.pop() ?? '';
-    // Firmware that doesn't end lines with a newline: a leftover that already parses is a whole line.
-    if (parseUartLine(this.pending)) {
+    // Firmware that never ends lines with a newline: a leftover that already parses is a whole
+    // line. Once the band has sent a newline, always wait for it, so a split line keeps every field.
+    if (!this.newlines && parseUartLine(this.pending)) {
       parts.push(this.pending);
       this.pending = '';
     }

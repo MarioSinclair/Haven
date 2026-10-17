@@ -74,6 +74,8 @@ export interface PatientRecord {
   email: string | null;
   /** From the PT, shown to the patient before each session. */
   planNote: string | null;
+  /** Armband movement reminder in minutes; 0 = off. */
+  reminderMinutes: number;
 }
 
 export type ProtocolByPhase = Record<Phase, Prescription[]>;

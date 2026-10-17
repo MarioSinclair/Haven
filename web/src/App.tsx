@@ -14,6 +14,7 @@ import type { BandTracePoint, Me, PatientBundle, ProtocolByPhase } from './lib/a
 import { APP_NAME } from './lib/brand';
 import { SimulatedBand, WebBluetoothBand, type BandSource, type BandStatus } from './lib/band/band';
 import { cameraTruth } from './lib/band/simTruth';
+import { phaseLimit } from './lib/carePlan';
 import type { SessionPlan } from './lib/protocol';
 import type { SessionResult } from './lib/session/engine';
 import { Coach } from './lib/voice/coach';
@@ -82,6 +83,16 @@ export function App() {
     if (!band) return;
     return band.onStatus(setBandStatus);
   }, [band]);
+
+  // The PT's limit and reminder go to the band whenever it connects or the plan changes. Only a
+  // plan loaded from the server counts: offline, the placeholder protocol is nobody's decision.
+  const plan = current?.bundle;
+  const bandLimit = plan ? phaseLimit(plan.protocol[plan.patient.currentPhase]) : undefined;
+  const bandReminder = plan?.patient.reminderMinutes;
+  useEffect(() => {
+    if (!band || bandStatus !== 'connected' || bandLimit === undefined || bandReminder === undefined) return;
+    band.configure({ limitDeg: bandLimit, reminderMinutes: bandReminder }).catch(() => undefined);
+  }, [band, bandStatus, bandLimit, bandReminder]);
 
   const connectBand = async (kind: 'ble' | 'simulated') => {
     band?.disconnect();

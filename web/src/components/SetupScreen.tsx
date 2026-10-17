@@ -3,7 +3,7 @@ import { WebBluetoothBand, type BandSource, type BandStatus } from '../lib/band/
 import { Cmd, type BandSample } from '../lib/band/protocol';
 import { uploadDailyUse, type PatientProfile } from '../lib/api';
 import type { ProtocolByPhase } from '../lib/apiTypes';
-import { planRows, type PlanRow } from '../lib/carePlan';
+import { phaseLimit, planRows, type PlanRow } from '../lib/carePlan';
 import { daysBetween } from '../lib/flags';
 import { affectedSides, buildExercisePlan, buildRangeCheckPlan, DEFAULT_PROTOCOL, EXERCISES, type SessionPlan } from '../lib/protocol';
 import { useReveal } from '../lib/motion';
@@ -231,7 +231,7 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
               ? 'Connecting…'
               : 'Optional. The band keeps tracking when the camera loses your arm, and logs daily arm use.'}
         </p>
-        {bandStatus === 'connected' && band && <BandReadout band={band} />}
+        {bandStatus === 'connected' && band && <BandReadout band={band} limitDeg={online ? phaseLimit(protocol[patient.currentPhase]) : undefined} />}
         <div className="inline">
           {bandStatus !== 'connected' ? (
             <>
@@ -291,8 +291,12 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
   );
 }
 
-/** The band's live angle, so you can see it working before a session. Redraws about 10 times a second. */
-function BandReadout({ band }: { band: BandSource }) {
+/**
+ * The band's live angle, so you can see it working before a session, and the limit it reports
+ * back, so the PT's limit is confirmed by the band itself. Redraws about 10 times a second.
+ * `limitDeg` is the limit the app sent: null for none, undefined when it sent nothing.
+ */
+function BandReadout({ band, limitDeg }: { band: BandSource; limitDeg: number | null | undefined }) {
   const [sample, setSample] = useState<BandSample | null>(band.lastSample);
   useEffect(() => {
     let shownAt = 0;
@@ -304,10 +308,31 @@ function BandReadout({ band }: { band: BandSource }) {
   }, [band]);
 
   if (!sample) return <p className="fine">Waiting for the band…</p>;
+  // Older firmware has no buzzer and reports no limit.
+  const hasLimit = sample.limitDeg !== undefined;
+  const confirmed = hasLimit && (limitDeg === undefined || sample.limitDeg === limitDeg);
   return (
-    <p className="band-readout">
+    <div className="band-readout">
       <strong>{Math.round(sample.elevationDeg)}°</strong>
-      <span className="fine">{sample.calibrated ? 'Arm angle from the band' : 'Not zeroed yet: let your arm hang relaxed, then press Zero.'}</span>
-    </p>
+      <div className="band-status">
+        <span className="fine">{sample.calibrated ? 'Arm angle from the band' : 'Not zeroed yet: let your arm hang relaxed, then press Zero.'}</span>
+        {hasLimit && (
+          <span className={sample.overLimit ? 'band-over' : 'fine'}>
+            {sample.overLimit
+              ? `Above your ${sample.limitDeg}° limit: lower your arm.`
+              : !confirmed
+                ? `Sending your ${limitDeg === null ? 'settings' : `${limitDeg}° limit`} to the band…`
+                : sample.limitDeg === null
+                  ? 'No limit on the band.'
+                  : `The band warns at ${sample.limitDeg}°${limitDeg !== undefined ? ', set by your physical therapist' : ''}${sample.calibrated ? '.' : ', once zeroed.'}`}
+          </span>
+        )}
+      </div>
+      {hasLimit && band.kind === 'ble' && (
+        <button className="secondary" onClick={() => void band.beep().catch(() => undefined)}>
+          Test beep
+        </button>
+      )}
+    </div>
   );
 }

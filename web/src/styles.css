@@ -537,8 +537,20 @@ input[type='checkbox'] {
 
 .band-readout {
   display: flex;
-  align-items: baseline;
-  gap: 0.8rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+}
+
+.band-status {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.band-over {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .band-readout strong {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { includedPrescriptions, parsePatientInput, parsePrescriptions, planRows } from './carePlan';
+import { includedPrescriptions, parsePatientInput, parsePrescriptions, phaseLimit, planRows } from './carePlan';
 import { DEFAULT_PROTOCOL } from './protocol';
 
 const valid = {
@@ -22,7 +22,14 @@ describe('patient input', () => {
       currentPhase: 2,
       email: 'ana@example.com',
       planNote: null,
+      reminderMinutes: 0,
     });
+  });
+
+  it('takes the armband reminder in whole minutes, off by default', () => {
+    expect(parsePatientInput({ ...valid, reminderMinutes: '45' }).reminderMinutes).toBe(45);
+    expect(() => parsePatientInput({ ...valid, reminderMinutes: 500 })).toThrow(/Reminder/);
+    expect(() => parsePatientInput({ ...valid, reminderMinutes: -5 })).toThrow(/Reminder/);
   });
 
   it('rejects a missing name, a bad side, phase, date or email', () => {
@@ -52,6 +59,12 @@ describe('phase plans', () => {
     expect(() => parsePrescriptions([{ ...rx, ceilingDeg: 900 }])).toThrow(/limit/);
     expect(() => parsePrescriptions([{ ...rx, reps: 0 }])).toThrow(/reps/);
     expect(() => parsePrescriptions([{ ...rx, sets: 1.5 }])).toThrow(/sets/);
+  });
+
+  it("gives the band the phase's strictest limit, or none", () => {
+    expect(phaseLimit(DEFAULT_PROTOCOL[1].prescriptions)).toBe(90);
+    expect(phaseLimit([{ exerciseId: 'side_raise', ceilingDeg: 120, goalDeg: null, reps: 10, sets: 2 }, { exerciseId: 'scaption', ceilingDeg: 100, goalDeg: null, reps: 10, sets: 2 }])).toBe(100);
+    expect(phaseLimit(DEFAULT_PROTOCOL[2].prescriptions)).toBeNull();
   });
 
   it('round-trips a phase through the editable rows', () => {
