@@ -1,6 +1,7 @@
 // What a clinician sets for a patient: their details and the exercise plan for each phase.
 // Shared so the form and the server reject the same things with the same words.
-import type { PatientRecord, ProtocolByPhase } from './apiTypes';
+import type { PatientRecord, ProtocolByPhase, SessionResultJson } from './apiTypes';
+import { baselineSourceFor } from './baseline';
 import { EXERCISES, type Prescription } from './protocol';
 import type { AffectedSide, ExerciseId, Phase } from './types';
 
@@ -68,7 +69,7 @@ export function parsePatientInput(body: unknown): PatientInput {
   if (affectedSide !== 'left' && affectedSide !== 'right' && affectedSide !== 'both') throw new Error('Choose the surgery side.');
 
   const surgeryDate = text(b.surgeryDate, 'Surgery date', 10);
-  if (surgeryDate && (!/^\d{4}-\d{2}-\d{2}$/.test(surgeryDate) || Number.isNaN(Date.parse(surgeryDate)))) throw new Error('Surgery date must be a date.');
+  if (surgeryDate && !isCalendarDate(surgeryDate)) throw new Error('Surgery date must be a date.');
 
   const currentPhase = Number(b.currentPhase);
   if (currentPhase !== 1 && currentPhase !== 2 && currentPhase !== 3) throw new Error('Phase must be 1, 2 or 3.');
@@ -109,6 +110,49 @@ export function parsePrescriptions(body: unknown): Prescription[] {
       sets: requiredInt(raw.sets, `${name} sets`, SETS_RANGE),
     };
   });
+}
+
+/**
+ * A finished session as the server stores it. The phase, each set's limit and every over-limit
+ * mark come from the PT's plan, not from the app, so an edited request can't hide a limit break.
+ * Throws when the session doesn't fit the plan.
+ */
+export function checkSession(
+  result: SessionResultJson,
+  patient: Pick<PatientRecord, 'currentPhase' | 'affectedSide' | 'surgeryDate'>,
+  protocol: ProtocolByPhase,
+): SessionResultJson {
+  if (result.kind !== 'exercise' && result.kind !== 'assessment') throw new Error('Unknown session kind.');
+  const phase = patient.currentPhase;
+  const surgery = patient.surgeryDate ? new Date(`${patient.surgeryDate}T00:00:00`) : null;
+  const sets = result.sets.map((s) => {
+    if (!Object.hasOwn(EXERCISES, s.exerciseId)) throw new Error(`Unknown exercise ${String(s.exerciseId)}.`);
+    const name = EXERCISES[s.exerciseId].name;
+    if (s.side !== 'left' && s.side !== 'right') throw new Error(`${name} needs a side.`);
+    if (s.kind !== result.kind) throw new Error(`${name} doesn't match the session kind.`);
+    let ceilingDeg: number | null = null;
+    if (s.kind === 'exercise') {
+      const rx = protocol[phase].find((p) => p.exerciseId === s.exerciseId);
+      if (!rx) throw new Error(`${name} isn't in the phase ${phase} plan.`);
+      ceilingDeg = rx.ceilingDeg;
+    } else if (baselineSourceFor(new Date(result.startedAt), surgery, s.side, patient.affectedSide) === 'first_session') {
+      // A range check has no limit, so after surgery it's for the other arm only.
+      throw new Error('After surgery, range checks are for the other arm only.');
+    }
+    if (s.pain !== null && !(Number.isInteger(s.pain) && s.pain >= 0 && s.pain <= 10)) throw new Error('Pain must be a whole number from 0 to 10.');
+    const reps = s.reps.map((r) => {
+      if (!Number.isFinite(r.peakDeg)) throw new Error(`${name} has a rep with no peak angle.`);
+      return { ...r, overCeiling: ceilingDeg !== null && r.peakDeg > ceilingDeg };
+    });
+    return { ...s, ceilingDeg, reps };
+  });
+  return { ...result, phase, sets };
+}
+
+/** Date.parse rolls 2026-02-31 over to March 3, so a real date must survive the round trip. */
+function isCalendarDate(s: string): boolean {
+  const t = Date.parse(s);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s;
 }
 
 function text(v: unknown, label: string, max: number): string | null {

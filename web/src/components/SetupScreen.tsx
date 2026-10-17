@@ -229,7 +229,7 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
             ? `Connected${band?.kind === 'simulated' ? ' (simulated)' : ''}${band?.lastSample?.batteryPct != null ? ` · battery ${band.lastSample.batteryPct}%` : ''}`
             : bandStatus === 'connecting'
               ? 'Connecting…'
-              : 'Optional. The band keeps tracking when the camera loses your arm, and logs daily arm use.'}
+              : 'Optional. The band keeps tracking when the camera loses your arm, and can warn you near your limit between sessions.'}
         </p>
         {bandStatus === 'connected' && band && <BandReadout band={band} limitDeg={online ? phaseLimit(protocol[patient.currentPhase]) : undefined} />}
         <div className="inline">
