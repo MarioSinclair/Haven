@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { includedPrescriptions, parsePatientInput, parsePrescriptions, phaseLimit, planRows } from './carePlan';
+import type { SessionResultJson } from './apiTypes';
+import { checkSession, includedPrescriptions, parsePatientInput, parsePrescriptions, phaseLimit, planRows } from './carePlan';
 import { DEFAULT_PROTOCOL } from './protocol';
+import type { RepResult, SetResult } from './session/engine';
 
 const valid = {
   displayName: '  Ana  ',
@@ -37,6 +39,8 @@ describe('patient input', () => {
     expect(() => parsePatientInput({ ...valid, affectedSide: 'up' })).toThrow(/side/);
     expect(() => parsePatientInput({ ...valid, currentPhase: 4 })).toThrow(/Phase/);
     expect(() => parsePatientInput({ ...valid, surgeryDate: '10/02/2026' })).toThrow(/date/);
+    expect(() => parsePatientInput({ ...valid, surgeryDate: '2026-02-31' })).toThrow(/date/);
+    expect(parsePatientInput({ ...valid, surgeryDate: '2028-02-29' }).surgeryDate).toBe('2028-02-29');
     expect(() => parsePatientInput({ ...valid, email: 'ana@' })).toThrow(/email/);
   });
 });
@@ -73,5 +77,53 @@ describe('phase plans', () => {
     expect(rows.find((r) => r.exerciseId === 'forward_raise')?.included).toBe(false);
     expect(includedPrescriptions(rows)).toEqual(expect.arrayContaining(DEFAULT_PROTOCOL[1].prescriptions));
     expect(includedPrescriptions(rows)).toHaveLength(DEFAULT_PROTOCOL[1].prescriptions.length);
+  });
+});
+
+describe('saved sessions', () => {
+  const protocol = { 1: DEFAULT_PROTOCOL[1].prescriptions, 2: DEFAULT_PROTOCOL[2].prescriptions, 3: DEFAULT_PROTOCOL[3].prescriptions };
+  const patient = { currentPhase: 1 as const, affectedSide: 'left' as const, surgeryDate: '2026-10-02' };
+  const rep = (peakDeg: number): RepResult => ({
+    index: 0,
+    peakDeg,
+    durationMs: 3000,
+    source: 'camera',
+    overCeiling: false,
+    shoulderHike: false,
+    trunkLean: false,
+    elbowBend: false,
+    imuPeakDeg: null,
+    endedAt: '2026-10-10T14:00:00Z',
+  });
+  const set = (over: Partial<SetResult> = {}): SetResult => ({ exerciseId: 'side_raise', side: 'left', kind: 'exercise', setIndex: 0, ceilingDeg: null, repsTarget: 10, reps: [rep(80), rep(100)], pain: 2, ...over });
+  const session = (over: Partial<SessionResultJson> = {}): SessionResultJson => ({
+    kind: 'exercise',
+    phase: 3,
+    startedAt: '2026-10-10T14:00:00Z',
+    endedAt: '2026-10-10T14:10:00Z',
+    sets: [set()],
+    symptoms: null,
+    ...over,
+  });
+
+  it("takes the phase, limit and over-limit marks from the PT's plan, not the app", () => {
+    const saved = checkSession(session(), patient, protocol);
+    expect(saved.phase).toBe(1);
+    expect(saved.sets[0].ceilingDeg).toBe(90);
+    expect(saved.sets[0].reps.map((r) => r.overCeiling)).toEqual([false, true]);
+  });
+
+  it('rejects an exercise outside the plan, a bad pain score or a mixed-up set', () => {
+    expect(() => checkSession(session({ sets: [set({ exerciseId: 'forward_raise' })] }), patient, protocol)).toThrow(/plan/);
+    expect(() => checkSession(session({ sets: [set({ pain: 11 })] }), patient, protocol)).toThrow(/Pain/);
+    expect(() => checkSession(session({ sets: [set({ kind: 'assessment' })] }), patient, protocol)).toThrow(/kind/);
+  });
+
+  it('allows range checks before surgery or on the other arm, never on the surgery side after it', () => {
+    const check = (side: 'left' | 'right', startedAt: string) =>
+      checkSession(session({ kind: 'assessment', startedAt, sets: [set({ kind: 'assessment', side })] }), patient, protocol);
+    expect(check('left', '2026-09-20T14:00:00Z').sets[0].ceilingDeg).toBeNull();
+    expect(check('right', '2026-10-10T14:00:00Z').sets[0].reps.every((r) => !r.overCeiling)).toBe(true);
+    expect(() => check('left', '2026-10-10T14:00:00Z')).toThrow(/other arm/);
   });
 });

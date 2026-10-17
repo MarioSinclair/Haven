@@ -43,7 +43,7 @@ const FACTS = [
 const TLDR = [
   { k: 'For', v: 'People recovering from breast cancer surgery, and the physical therapists who guide them.' },
   { k: 'Problem', v: 'Shoulder exercises after a mastectomy are done alone at home. Between visits the PT can’t see how high the arm got, whether it hurt, or whether a limit was broken.' },
-  { k: 'Built', v: 'A camera coach that enforces the PT’s limits, an armband that tracks real-world arm use, and a console with reports written by Gemini from numbers our code computed.' },
+  { k: 'Built', v: 'A camera coach that enforces the PT’s limits, an armband that keeps enforcing them between sessions, and a console with reports written by Gemini from numbers our code computed.' },
   { k: 'Stack', v: 'MediaPipe · XIAO ESP32-S3 + BNO085 · React · Express · Tiger Data · Auth0 · Gemini' },
 ];
 
@@ -244,8 +244,8 @@ export function JudgesPage() {
                 <p className="eyebrow">Armband</p>
                 <h3>Fills the gaps</h3>
                 <p className="muted">
-                  A XIAO ESP32-S3 with a BNO085 IMU streams the arm's angle over Bluetooth at 20 Hz. When the camera loses the arm, the band takes over. Between sessions it logs how
-                  high and how often the arm is raised in daily life.
+                  A XIAO ESP32-S3 with a BNO085 IMU streams the arm's angle over Bluetooth at 20 Hz. When the camera loses the arm, the band takes over. Between sessions it keeps the
+                  PT's limit on its own: it beeps faster as the arm nears the limit, alarms above it, and chirps if the arm hasn't been raised for a while.
                 </p>
               </article>
               <article className="card j-reveal">
@@ -305,7 +305,10 @@ export function JudgesPage() {
                   <li>The PT report's narrative, explaining flags the rules already raised</li>
                   <li>Questions the PT could ask at the next visit</li>
                 </ul>
-                <p className="fine">The server rejects any number in Gemini's text that isn't in the data. Gemini never sees video and never sets a limit or a flag.</p>
+                <p className="fine">
+                  The server checks every number in Gemini's text against the data, sends any that don't match back to Gemini once, and marks any still unmatched for the PT.
+                  Gemini never sees video and never sets a limit or a flag.
+                </p>
               </div>
             </div>
           </section>
@@ -354,6 +357,7 @@ export function JudgesPage() {
               <li>Video never leaves the laptop. Pose tracking runs on-device; only angles, counts and answers are stored.</li>
               <li>Patients can hide the camera image and see only an outline of their arm, which matters after chest surgery.</li>
               <li>The patient in the console is simulated, and the replay is scripted. Both run through the real code.</li>
+              <li>The band as built doesn't log daily arm use yet, so the console's daily-use panel shows simulated data.</li>
               <li>The range limits in the demo are placeholders. Real limits come from the patient's surgeon or physical therapist.</li>
               <li>Chrome's speech recognition uses Google's servers, so voice answers are optional and tap buttons are the default.</li>
               <li>This is a 36-hour prototype, not a medical device.</li>

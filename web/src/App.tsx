@@ -157,6 +157,9 @@ export function App() {
   const clinician = me?.role === 'clinician';
   const side: View = clinician ? view : 'patient';
   const online = !!current?.patient.id;
+  // A signed-in clinician trying the patient side, or a sign-in with no record of their own, must not
+  // add to a real record. Dev mode has no sign-in and still saves, so the save path can be tried locally.
+  const skipSave = clinician && auth ? 'Preview: not saved' : me?.readOnly ? 'Demo: not saved' : undefined;
 
   return (
     <>
@@ -177,6 +180,7 @@ export function App() {
         )}
         <div className="topbar-right">
           {clinician && side === 'patient' && current && <span className="pill topbar-patient">Viewing as {current.patient.displayName}</span>}
+          {me?.readOnly && <span className="pill topbar-patient">Demo patient: sessions aren't saved</span>}
           {auth ? (
             <button className="link" onClick={auth.logout}>
               Sign out<span className="signout-email">{auth.email ? ` ${auth.email}` : ''}</span>
@@ -189,7 +193,7 @@ export function App() {
 
       <main>
         {run?.name === 'summary' && current ? (
-          <SummaryScreen result={run.result} trace={run.trace} patient={current.patient} onDone={() => setRun(null)} />
+          <SummaryScreen result={run.result} trace={run.trace} patient={current.patient} skipSave={skipSave} onDone={() => setRun(null)} />
         ) : side === 'clinician' ? (
           <>
             {clinicianScreen === 'patients' && <PatientsScreen onOpen={openPatient} />}

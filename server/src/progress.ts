@@ -72,7 +72,7 @@ export async function summarizePatient(patientId: string): Promise<PatientSummar
 export async function loadProgress(patientId: string, asOf?: string): Promise<Progress> {
   const tz = config.timezone;
   const { patient, protocol, baselines } = await loadPatient(patientId);
-  const asOfDay = asOf ?? (await db().query(`select to_char((now() at time zone $1)::date - 1, 'YYYY-MM-DD') as d`, [tz])).rows[0].d;
+  const asOfDay = asOf ?? (await db().query(`select to_char((now() at time zone $1)::date, 'YYYY-MM-DD') as d`, [tz])).rows[0].d;
 
   const [rom, sessions, use] = await Promise.all([
     db().query(

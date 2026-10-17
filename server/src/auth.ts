@@ -8,6 +8,8 @@ export interface AppUser {
   email: string | null;
   role: 'patient' | 'clinician';
   patientId: string | null;
+  /** Signed in with no record of their own, so they see the demo patient but can't add to it. */
+  readOnly: boolean;
 }
 
 declare module 'express-serve-static-core' {
@@ -16,7 +18,7 @@ declare module 'express-serve-static-core' {
   }
 }
 
-const DEV_USER: AppUser = { sub: 'dev', email: null, role: 'clinician', patientId: null };
+const DEV_USER: AppUser = { sub: 'dev', email: null, role: 'clinician', patientId: null, readOnly: false };
 
 const verifyJwt = config.auth0 ? auth({ issuerBaseURL: `https://${config.auth0.domain}/`, audience: config.auth0.audience }) : null;
 
@@ -61,9 +63,15 @@ async function resolveUser(req: Request): Promise<AppUser> {
   // CLINICIAN_EMAILS is re-read on every sign-in, so adding someone later still takes effect.
   const clinician = row?.role === 'clinician' || (!!email && config.clinicianEmails.includes(email.toLowerCase()));
   // A patient lands on the record a clinician added for their email. Hackathon fallback:
-  // anyone else signs in to the demo patient.
+  // anyone else sees the demo patient, read-only, so the public demo record stays clean.
   const record = !clinician && email ? (await db().query('select id from patients where lower(email) = lower($1)', [email])).rows[0] : undefined;
-  const user: AppUser = { sub, email, role: clinician ? 'clinician' : 'patient', patientId: clinician ? null : (record?.id ?? config.demoPatientId) };
+  const user: AppUser = {
+    sub,
+    email,
+    role: clinician ? 'clinician' : 'patient',
+    patientId: clinician ? null : (record?.id ?? config.demoPatientId),
+    readOnly: !clinician && !record,
+  };
 
   await db().query(
     `insert into app_users (auth0_sub, email, role, patient_id) values ($1, $2, $3, $4)
@@ -88,6 +96,11 @@ async function verifiedEmail(req: Request): Promise<string | null> {
 export function assertCanSee(user: AppUser, patientId: string) {
   if (user.role === 'clinician') return;
   if (user.patientId !== patientId) throw new HttpError(403, 'You can only see your own records');
+}
+
+export function assertCanChange(user: AppUser, patientId: string) {
+  assertCanSee(user, patientId);
+  if (user.readOnly) throw new HttpError(403, 'This is the demo patient, so nothing is saved. Ask your physical therapist to add your email.');
 }
 
 export function assertClinician(user: AppUser) {

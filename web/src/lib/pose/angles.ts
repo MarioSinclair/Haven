@@ -1,4 +1,4 @@
-import type { PoseMetrics, Side } from '../types';
+import type { CameraView, PoseMetrics, Side } from '../types';
 
 export interface Vec2 {
   x: number;
@@ -68,7 +68,7 @@ const inFrame = (l: RawLandmark) => l.x >= 0 && l.x <= 1 && l.y >= 0 && l.y <= 1
  * Landmarks are normalized separately on each axis, so they are scaled to pixels first;
  * otherwise every angle is skewed by the video's aspect ratio.
  */
-export function computeMetrics(landmarks: RawLandmark[], side: Side, width: number, height: number): PoseMetrics | null {
+export function computeMetrics(landmarks: RawLandmark[], side: Side, view: CameraView, width: number, height: number): PoseMetrics | null {
   const ix = sideLandmarks(side);
   const px = (i: number): Vec2 => ({ x: landmarks[i].x * width, y: landmarks[i].y * height });
 
@@ -86,8 +86,14 @@ export function computeMetrics(landmarks: RawLandmark[], side: Side, width: numb
   const tracked = [ix.shoulder, ix.elbow, ix.hip].map((i) => landmarks[i]);
   const confidence = tracked.every(inFrame) ? Math.min(...tracked.map((l) => l.visibility ?? 0)) : 0;
 
+  // Front-on, the shoulder→hip line on one side slopes with body shape (shoulders wider or narrower
+  // than hips), shifting every reading by several degrees either way. Measure against the trunk
+  // midline instead, carried over to the shoulder. Side-on the far landmarks are hidden, and the
+  // two lines nearly coincide anyway.
+  const down = view === 'front' ? { x: shoulder.x + midHip.x - midShoulder.x, y: shoulder.y + midHip.y - midShoulder.y } : hip;
+
   return {
-    elevationDeg: armElevationDeg(shoulder, elbow, hip),
+    elevationDeg: armElevationDeg(shoulder, elbow, down),
     elbowDeg: elbowAngleDeg(shoulder, elbow, wrist),
     trunkLeanDeg: trunkLeanDeg(midShoulder, midHip),
     earLift: (shoulder.y - ear.y) / torso,

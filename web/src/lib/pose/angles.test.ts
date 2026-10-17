@@ -56,30 +56,43 @@ describe('computeMetrics', () => {
   it('measures in pixels, not normalized units, so a 16:9 frame does not skew the angle', () => {
     const shoulder = { x: 760, y: 250 };
     const elbow = { x: 910, y: 400 };
-    const hip = { x: 730, y: 550 };
+    // `standing` has an upright trunk, so its midline carried to the shoulder points straight down.
+    const below = { x: 760, y: 550 };
     const norm = (p: { x: number; y: number }) => ({ x: p.x / W, y: p.y / H });
-    const truth = armElevationDeg(shoulder, elbow, hip);
-    const skewed = armElevationDeg(norm(shoulder), norm(elbow), norm(hip));
+    const truth = armElevationDeg(shoulder, elbow, below);
+    const skewed = armElevationDeg(norm(shoulder), norm(elbow), norm(below));
     expect(Math.abs(truth - skewed)).toBeGreaterThan(10);
 
-    const m = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [elbow.x, elbow.y], [LM.LEFT_WRIST]: [1060, 550] }), 'left', W, H)!;
+    const m = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [elbow.x, elbow.y], [LM.LEFT_WRIST]: [1060, 550] }), 'left', 'front', W, H)!;
     expect(m.elevationDeg).toBeCloseTo(truth, 5);
     expect(m.elbowDeg).toBeCloseTo(180, 0);
   });
 
+  it('reads a level arm as 90° front-on whatever the body shape, not tilted by the hip line', () => {
+    const level = { [LM.LEFT_ELBOW]: [1000, 250] as [number, number] };
+    const narrowHips = computeMetrics(pose({ ...standing, ...level }), 'left', 'front', W, H)!;
+    const wideHips = computeMetrics(pose({ ...standing, ...level, [LM.LEFT_HIP]: [800, 550], [LM.RIGHT_HIP]: [480, 550] }), 'left', 'front', W, H)!;
+    expect(narrowHips.elevationDeg).toBeCloseTo(90, 5);
+    expect(wideHips.elevationDeg).toBeCloseTo(90, 5);
+    // The same-side hip line reads high with narrow hips and low with wide ones.
+    expect(armElevationDeg({ x: 760, y: 250 }, { x: 1000, y: 250 }, { x: 730, y: 550 })).toBeCloseTo(95.7, 1);
+    expect(armElevationDeg({ x: 760, y: 250 }, { x: 1000, y: 250 }, { x: 800, y: 550 })).toBeCloseTo(82.4, 1);
+  });
+
   it('reads the patient-left arm from the left landmarks', () => {
-    const m = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [1000, 250], [LM.RIGHT_ELBOW]: [520, 400] }), 'left', W, H)!;
+    const m = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [1000, 250], [LM.RIGHT_ELBOW]: [520, 400] }), 'left', 'front', W, H)!;
     expect(m.elevationDeg).toBeGreaterThan(80);
-    const right = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [1000, 250], [LM.RIGHT_ELBOW]: [520, 400] }), 'right', W, H)!;
+    const right = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [1000, 250], [LM.RIGHT_ELBOW]: [520, 400] }), 'right', 'front', W, H)!;
     expect(right.elevationDeg).toBeLessThan(10);
   });
 
   it('distinguishes facing the camera from standing side-on', () => {
-    const facing = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [770, 400] }), 'left', W, H)!;
+    const facing = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [770, 400] }), 'left', 'front', W, H)!;
     expect(viewMatches('front', facing.facingRatio)).toBe(true);
     const sideOn = computeMetrics(
       pose({ ...standing, [LM.LEFT_SHOULDER]: [650, 250], [LM.RIGHT_SHOULDER]: [630, 250], [LM.LEFT_HIP]: [645, 550], [LM.RIGHT_HIP]: [635, 550], [LM.LEFT_ELBOW]: [650, 400] }),
       'left',
+      'side',
       W,
       H,
     )!;
@@ -88,13 +101,13 @@ describe('computeMetrics', () => {
   });
 
   it('reports zero confidence when the elbow leaves the frame', () => {
-    const m = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [1400, 250] }), 'left', W, H)!;
+    const m = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [1400, 250] }), 'left', 'front', W, H)!;
     expect(m.confidence).toBe(0);
   });
 
   it('shrinks earLift when the shoulder hikes toward the ear', () => {
-    const relaxed = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [770, 400] }), 'left', W, H)!;
-    const shrug = computeMetrics(pose({ ...standing, [LM.LEFT_SHOULDER]: [760, 215], [LM.LEFT_ELBOW]: [770, 365] }), 'left', W, H)!;
+    const relaxed = computeMetrics(pose({ ...standing, [LM.LEFT_ELBOW]: [770, 400] }), 'left', 'front', W, H)!;
+    const shrug = computeMetrics(pose({ ...standing, [LM.LEFT_SHOULDER]: [760, 215], [LM.LEFT_ELBOW]: [770, 365] }), 'left', 'front', W, H)!;
     expect(shrug.earLift).toBeLessThan(relaxed.earLift * 0.75);
   });
 });

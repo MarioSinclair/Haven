@@ -19,18 +19,34 @@ export function usePoseCamera(videoRef: RefObject<HTMLVideoElement | null>, onFr
     let stream: MediaStream | null = null;
     let landmarker: PoseLandmarker | null = null;
 
+    // Also runs when the camera or model arrives after unmount (StrictMode does this on every
+    // start), or the camera light would stay on.
+    const release = () => {
+      cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((track) => track.stop());
+      landmarker?.close();
+      stream = null;
+      landmarker = null;
+    };
+
     (async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
           audio: false,
         });
-        if (cancelled) return;
+        if (cancelled) {
+          release();
+          return;
+        }
         const video = videoRef.current!;
         video.srcObject = stream;
         await video.play();
         landmarker = await createPoseLandmarker();
-        if (cancelled) return;
+        if (cancelled) {
+          release();
+          return;
+        }
         setStatus('ready');
 
         let lastVideoTime = -1;
@@ -52,9 +68,7 @@ export function usePoseCamera(videoRef: RefObject<HTMLVideoElement | null>, onFr
 
     return () => {
       cancelled = true;
-      cancelAnimationFrame(raf);
-      stream?.getTracks().forEach((track) => track.stop());
-      landmarker?.close();
+      release();
     };
   }, [videoRef]);
 

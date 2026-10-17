@@ -109,6 +109,8 @@ export interface Me {
   email: string | null;
   role: 'patient' | 'clinician';
   patientId: string | null;
+  /** Signed in with no record of their own, so they see the demo patient but can't add to it. */
+  readOnly: boolean;
 }
 
 export interface ExerciseProgress {

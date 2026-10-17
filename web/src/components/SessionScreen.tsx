@@ -43,6 +43,8 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
   const repsRef = useRef<HTMLSpanElement>(null);
   const angleRef = useRef<HTMLSpanElement>(null);
   const [voiceOn, setVoiceOn] = useState(coach.enabled);
+  // Once the patient answers pain by voice, later pain prompts this session listen hands-free.
+  const [painByVoice, setPainByVoice] = useState(false);
 
   useEffect(
     () =>
@@ -64,7 +66,8 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
 
   const camera = usePoseCamera(videoRef, (landmarks, t, w, h) => {
     const side = engine.side;
-    const metrics = landmarks ? computeMetrics(landmarks, side, w, h) : null;
+    const view = EXERCISES[(engine.block ?? plan.blocks[0]).exerciseId].view;
+    const metrics = landmarks ? computeMetrics(landmarks, side, view, w, h) : null;
     cameraTruth.deg = metrics && metrics.confidence >= MIN_CAMERA_CONFIDENCE ? metrics.elevationDeg : null;
     engine.tick(t, metrics, imuRef.current);
 
@@ -134,7 +137,7 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
 
         {lostCamera && <div className="source-pill">Camera lost your arm, using the band</div>}
 
-        {snap.stage === 'pain' && <PainPrompt onSubmit={(n) => engine.submitPain(n)} />}
+        {snap.stage === 'pain' && <PainPrompt onSubmit={(n) => engine.submitPain(n)} autoListen={painByVoice} onVoiceChosen={() => setPainByVoice(true)} />}
         {snap.stage === 'rest' && (
           <RestOverlay
             progress={snap.progress}

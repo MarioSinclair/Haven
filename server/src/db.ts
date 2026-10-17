@@ -7,7 +7,8 @@ pg.types.setTypeParser(pg.types.builtins.DATE, (v) => v);
 pg.types.setTypeParser(pg.types.builtins.INT8, Number);
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, Number);
 
-export const pool = config.databaseUrl ? new pg.Pool({ ...pgOptions(config.databaseUrl), max: 5 }) : null;
+// A database that's down or asleep fails requests after 5 s instead of hanging them.
+export const pool = config.databaseUrl ? new pg.Pool({ ...pgOptions(config.databaseUrl), max: 5, connectionTimeoutMillis: 5_000 }) : null;
 
 export function db(): pg.Pool {
   if (!pool) throw new HttpError(503, 'DATABASE_URL is not set');

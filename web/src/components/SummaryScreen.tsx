@@ -5,14 +5,27 @@ import { useReveal } from '../lib/motion';
 import { EXERCISES } from '../lib/protocol';
 import type { SessionResult, SetResult } from '../lib/session/engine';
 
-type SaveState = { status: 'idle' | 'saving' | 'saved' | 'offline' } | { status: 'error'; message: string };
+type SaveState = { status: 'idle' | 'saving' | 'saved' | 'offline' } | { status: 'error'; message: string } | { status: 'skipped'; reason: string };
 
-export function SummaryScreen({ result, trace, patient, onDone }: { result: SessionResult; trace: BandTracePoint[]; patient: PatientProfile; onDone: () => void }) {
+interface Props {
+  result: SessionResult;
+  trace: BandTracePoint[];
+  patient: PatientProfile;
+  /** Why this session must not be saved, shown in place of the save status. */
+  skipSave?: string;
+  onDone: () => void;
+}
+
+export function SummaryScreen({ result, trace, patient, skipSave, onDone }: Props) {
   const [save, setSave] = useState<SaveState>({ status: 'idle' });
   const root = useRef<HTMLDivElement>(null);
   useReveal(root);
 
   const doSave = async () => {
+    if (skipSave) {
+      setSave({ status: 'skipped', reason: skipSave });
+      return;
+    }
     if (!patient.id) {
       setSave({ status: 'offline' });
       return;
@@ -60,6 +73,7 @@ export function SummaryScreen({ result, trace, patient, onDone }: { result: Sess
           {save.status === 'saving' && 'Saving…'}
           {save.status === 'saved' && 'Saved'}
           {save.status === 'offline' && 'Offline: not saved'}
+          {save.status === 'skipped' && save.reason}
           {save.status === 'error' && 'Save failed'}
         </span>
       </header>

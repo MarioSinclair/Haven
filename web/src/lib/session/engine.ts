@@ -100,6 +100,8 @@ interface RepAccumulator {
   lean: boolean;
   elbow: boolean;
   imuPeak: number | null;
+  /** The arm went out of sight mid-rep, or came back already raised, so its true top is unknown. */
+  unseen: boolean;
 }
 
 const POSITION_HOLD_MS = 800;
@@ -108,6 +110,10 @@ const CALIBRATE_MAX_STD_DEG = 4;
 const REST_POSE_MAX_DEG = 35;
 const IMU_FRESH_MS = 300;
 const LOST_CUE_AFTER_MS = 1000;
+/** Shorter tracking dropouts during a rep are a dropped frame or two, not a missed top. */
+const UNSEEN_GAP_MS = 200;
+const UNCOUNTED_NOTICE_MS = 2500;
+const UNCOUNTED_MESSAGE = "Lost sight of your arm, so that one didn't count. Try stepping back a little.";
 // Compensation thresholds. Tune these against real recordings before the demo.
 const COMP_MIN_RISE_DEG = 30;
 const HIKE_EAR_GAP_DROP = 0.25;
@@ -139,6 +145,7 @@ export class SessionEngine {
   private symptoms: Symptoms | null = null;
   private restUntil = 0;
   private lostSince: number | null = null;
+  private uncountedUntil = 0;
   private lastCam: PoseMetrics | null = null;
   private lastCamDeg: number | null = null;
   private lastImu: ImuReading | null = null;
@@ -370,11 +377,13 @@ export class SessionEngine {
       }
       return;
     }
+    const gapMs = this.lostSince === null ? 0 : t - this.lostSince;
     this.lostSince = null;
 
     const wasUp = reps.isUp;
     const rep = reps.update(fused.deg, t);
     if (!wasUp && reps.isUp) this.acc = freshAccumulator();
+    if (gapMs > UNSEEN_GAP_MS && (wasUp || reps.isUp)) this.acc.unseen = true;
 
     const state = ceiling.update(fused.deg);
     if (state === 'near') this.cue({ key: 'near', text: 'Nearly at your limit.', cooldownMs: 5000 });
@@ -392,8 +401,14 @@ export class SessionEngine {
       if (imuMapped !== null) this.acc.imuPeak = Math.max(this.acc.imuPeak ?? -Infinity, imuMapped);
     }
 
-    this.message = ceiling.state === 'over' ? 'Past your limit. Lower slowly.' : EXERCISES[this.block!.exerciseId].instruction;
-    if (rep) this.completeRep(rep.peakDeg, rep.endT - rep.startT);
+    // A rep whose top went unseen can't be checked against the limit, so it isn't counted or saved.
+    if (rep && this.acc.unseen) {
+      this.uncountedUntil = t + UNCOUNTED_NOTICE_MS;
+      this.cue({ key: 'uncounted', text: UNCOUNTED_MESSAGE, interrupt: true, cooldownMs: 4000 });
+    }
+    this.message =
+      ceiling.state === 'over' ? 'Past your limit. Lower slowly.' : t < this.uncountedUntil ? UNCOUNTED_MESSAGE : EXERCISES[this.block!.exerciseId].instruction;
+    if (rep && !this.acc.unseen) this.completeRep(rep.peakDeg, rep.endT - rep.startT);
   }
 
   private updateCompensation(t: number, cam: PoseMetrics | null, fused: FusedAngle): CompensationFlags {
@@ -544,7 +559,7 @@ export class SessionEngine {
 }
 
 function freshAccumulator(): RepAccumulator {
-  return { cameraFrames: 0, imuFrames: 0, hike: false, lean: false, elbow: false, imuPeak: null };
+  return { cameraFrames: 0, imuFrames: 0, hike: false, lean: false, elbow: false, imuPeak: null, unseen: false };
 }
 
 function mean(xs: number[]): number {
