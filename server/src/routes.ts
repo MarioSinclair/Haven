@@ -1,7 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { PatientSummary, SessionPayload } from '../../web/src/lib/apiTypes';
 import { parsePatientInput, parsePrescriptions, type PatientInput } from '../../web/src/lib/carePlan';
-import { assertCanSee, assertClinician, forgetUsers, requireUser } from './auth';
+import { assertCanChange, assertCanSee, assertClinician, forgetUsers, requireUser } from './auth';
 import { config } from './config';
 import { db, HttpError, pool, transaction } from './db';
 import { loadPatient, loadProgress, summarizePatient } from './progress';
@@ -142,7 +142,7 @@ api.put(
 api.post(
   '/patients/:id/sessions',
   h(async (req) => {
-    assertCanSee(req.user!, param(req));
+    assertCanChange(req.user!, param(req));
     return saveSession(param(req), req.body as SessionPayload);
   }),
 );
@@ -150,7 +150,7 @@ api.post(
 api.post(
   '/patients/:id/daily-use',
   h(async (req) => {
-    assertCanSee(req.user!, param(req));
+    assertCanChange(req.user!, param(req));
     return { saved: await saveDailyUse(param(req), req.body?.records ?? []) };
   }),
 );
@@ -182,7 +182,7 @@ api.get(
 api.post(
   '/patients/:id/reports',
   h(async (req) => {
-    assertCanSee(req.user!, param(req));
+    assertCanChange(req.user!, param(req));
     return { report: await generateReport(param(req)) };
   }),
 );

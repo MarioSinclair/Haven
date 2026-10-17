@@ -1,14 +1,20 @@
 import { baselineSourceFor } from '../../web/src/lib/baseline';
-import type { SessionPayload } from '../../web/src/lib/apiTypes';
-import type { AffectedSide } from '../../web/src/lib/types';
+import type { SessionPayload, SessionResultJson } from '../../web/src/lib/apiTypes';
+import { checkSession } from '../../web/src/lib/carePlan';
 import { db, HttpError, transaction } from './db';
+import { loadPatient } from './progress';
 
 /** Writes a finished session, its band trace and any new baselines in one transaction. */
 export async function saveSession(patientId: string, payload: SessionPayload): Promise<{ sessionId: string }> {
-  const { result, bandTrace } = payload;
-  if (!result?.sets) throw new HttpError(400, 'Missing session result');
-  const patient = (await db().query('select affected_side, surgery_date from patients where id = $1', [patientId])).rows[0];
-  if (!patient) throw new HttpError(404, `No patient ${patientId}`);
+  if (!payload?.result?.sets) throw new HttpError(400, 'Missing session result');
+  const { bandTrace } = payload;
+  const { patient, protocol } = await loadPatient(patientId);
+  let result: SessionResultJson;
+  try {
+    result = checkSession(payload.result, patient, protocol);
+  } catch (err) {
+    throw new HttpError(400, err instanceof Error ? err.message : String(err));
+  }
 
   return transaction(async (c) => {
     const sessionId = (
@@ -75,7 +81,7 @@ export async function saveSession(patientId: string, payload: SessionPayload): P
     }
 
     // Range checks become baselines; a patient's first session on an arm becomes its starting point.
-    const surgery = patient.surgery_date ? new Date(`${patient.surgery_date}T00:00:00`) : null;
+    const surgery = patient.surgeryDate ? new Date(`${patient.surgeryDate}T00:00:00`) : null;
     const best = new Map<string, { exerciseId: string; side: 'left' | 'right'; peak: number }>();
     for (const s of result.sets) {
       if (!s.reps.length) continue;
@@ -84,7 +90,7 @@ export async function saveSession(patientId: string, payload: SessionPayload): P
       if ((best.get(key)?.peak ?? -Infinity) < peak) best.set(key, { exerciseId: s.exerciseId, side: s.side, peak });
     }
     for (const b of best.values()) {
-      const source = baselineSourceFor(new Date(result.startedAt), surgery, b.side, patient.affected_side as AffectedSide);
+      const source = baselineSourceFor(new Date(result.startedAt), surgery, b.side, patient.affectedSide);
       if (result.kind === 'exercise') {
         if (source !== 'first_session') continue;
         const existing = await c.query(

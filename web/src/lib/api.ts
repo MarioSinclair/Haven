@@ -62,7 +62,8 @@ export interface ServerStatus {
 
 export async function serverStatus(): Promise<ServerStatus> {
   try {
-    const res = await fetch('/api/health');
+    // The server's database connections give up after 5 s, so this only trips if the server itself hangs.
+    const res = await fetch('/api/health', { signal: AbortSignal.timeout(12_000) });
     if (!res.ok) throw new Error();
     const h = await res.json();
     return { reachable: true, database: !!h.database, timescale: !!h.timescale, gemini: !!h.gemini };
@@ -111,7 +112,8 @@ export const getSystem = () => call<SystemStats>('/system');
 
 /** Public, no sign-in: the simulated demo patient for the judges page. */
 export async function getDemo(): Promise<DemoBundle> {
-  const res = await fetch('/api/demo');
+  // Judges shouldn't wait on a slow server: the page falls back to the bundled snapshot.
+  const res = await fetch('/api/demo', { signal: AbortSignal.timeout(4_000) });
   if (!res.ok) throw new Error(`Server error ${res.status}`);
   return res.json();
 }

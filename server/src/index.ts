@@ -12,6 +12,13 @@ app.use('/api', api);
 
 // In production the server also serves the built web app, so one deploy covers the domain.
 const webDist = join(dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+
+// Dev mode makes every request the demo clinician, which is only safe on your own machine.
+if (!config.auth0 && (process.env.NODE_ENV === 'production' || existsSync(webDist))) {
+  console.error('Refusing to start in production without Auth0: set AUTH0_DOMAIN and AUTH0_AUDIENCE. (Delete web/dist to run locally in dev mode.)');
+  process.exit(1);
+}
+
 if (existsSync(webDist)) {
   app.use(express.static(webDist));
   app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(join(webDist, 'index.html')));
