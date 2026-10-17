@@ -58,6 +58,8 @@ export interface ServerStatus {
   database: boolean;
   timescale: boolean;
   gemini: boolean;
+  /** The server verifies Auth0 sign-ins. Without it, every request is the dev-mode clinician. */
+  auth: boolean;
 }
 
 export async function serverStatus(): Promise<ServerStatus> {
@@ -66,9 +68,9 @@ export async function serverStatus(): Promise<ServerStatus> {
     const res = await fetch('/api/health', { signal: AbortSignal.timeout(12_000) });
     if (!res.ok) throw new Error();
     const h = await res.json();
-    return { reachable: true, database: !!h.database, timescale: !!h.timescale, gemini: !!h.gemini };
+    return { reachable: true, database: !!h.database, timescale: !!h.timescale, gemini: !!h.gemini, auth: !!h.auth };
   } catch {
-    return { reachable: false, database: false, timescale: false, gemini: false };
+    return { reachable: false, database: false, timescale: false, gemini: false, auth: false };
   }
 }
 

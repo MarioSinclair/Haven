@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AmbientBackground } from './components/AmbientBackground';
-import { useAuthInfo } from './components/AuthGate';
+import { authConfigured, useAuthInfo } from './components/AuthGate';
 import { CarePlanScreen } from './components/CarePlanScreen';
 import { Logo } from './components/Logo';
 import { PatientProgress } from './components/PatientProgress';
@@ -147,6 +147,19 @@ export function App() {
   };
 
   if (!ready || !status) return <div className="loading">Loading…</div>;
+
+  // Signed in through Auth0, but the API isn't checking sign-ins: it would treat everyone as the
+  // dev-mode clinician, so show nothing until it's set up.
+  if (authConfigured && status.reachable && !status.auth) {
+    return (
+      <div className="setup">
+        <p className="notice">
+          Sign-in is on, but the API server isn't checking it, so everyone would get the clinician view. Restart the server with its settings:{' '}
+          <code>cd server &amp;&amp; npm run dev</code> (it reads <code>AUTH0_DOMAIN</code> and <code>AUTH0_AUDIENCE</code> from <code>server/.env</code>).
+        </p>
+      </div>
+    );
+  }
 
   if (run?.name === 'session') {
     return (
