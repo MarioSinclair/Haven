@@ -13,7 +13,8 @@ const UPPER_BODY: [number, number][] = [
   [LM.LEFT_HIP, LM.RIGHT_HIP],
 ];
 
-const STATE_COLOR: Record<CeilingState, string> = { ok: '#2dd4bf', near: '#fbbf24', over: '#f87171' };
+// Bright enough to read on top of live video.
+const STATE_COLOR: Record<CeilingState, string> = { ok: '#ff6ea1', near: '#fbbf24', over: '#ff4d4d' };
 
 export interface OverlayOptions {
   side: Side;

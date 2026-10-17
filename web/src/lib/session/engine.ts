@@ -29,6 +29,8 @@ export interface RepResult {
   elbowBend: boolean;
   /** The band's peak mapped into the camera's frame, so it compares directly with peakDeg. */
   imuPeakDeg: number | null;
+  /** Wall-clock time the rep finished, ISO 8601. */
+  endedAt: string;
 }
 
 export interface SetResult {
@@ -422,6 +424,7 @@ export class SessionEngine {
       trunkLean: acc.lean,
       elbowBend: acc.elbow,
       imuPeakDeg: acc.imuPeak === null ? null : round1(acc.imuPeak),
+      endedAt: this.clock().toISOString(),
     };
     set.reps.push(result);
     this.emit({ type: 'rep', rep: result });

@@ -1,14 +1,18 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { WebBluetoothBand, type BandSource, type BandStatus } from '../lib/band/band';
 import { Cmd } from '../lib/band/protocol';
-import { supabase, uploadDailyUse, type PatientProfile, type ProtocolByPhase } from '../lib/db';
+import { savePrescriptions, uploadDailyUse, type PatientProfile } from '../lib/api';
+import type { ProtocolByPhase } from '../lib/apiTypes';
 import { buildExercisePlan, buildRangeCheckPlan, DEFAULT_PROTOCOL, EXERCISES, type Prescription, type SessionPlan } from '../lib/protocol';
+import { useReveal } from '../lib/motion';
 import type { ExerciseId, Phase, Side } from '../lib/types';
 
 interface Props {
   patient: PatientProfile;
   protocol: ProtocolByPhase;
   loadError?: string;
+  online: boolean;
+  isClinician: boolean;
   band: BandSource | null;
   bandStatus: BandStatus;
   onConnectBand: (kind: 'ble' | 'simulated') => Promise<void>;
@@ -28,7 +32,7 @@ function rowsFor(protocol: ProtocolByPhase, phase: Phase): Row[] {
   });
 }
 
-export function SetupScreen({ patient, protocol, loadError, band, bandStatus, onConnectBand, onDisconnectBand, onStart }: Props) {
+export function SetupScreen({ patient, protocol, loadError, online, isClinician, band, bandStatus, onConnectBand, onDisconnectBand, onStart }: Props) {
   const [phase, setPhase] = useState<Phase>(patient.currentPhase);
   const [rows, setRows] = useState<Row[]>(() => rowsFor(protocol, patient.currentPhase));
   const [mode, setMode] = useState<Mode>('exercise');
@@ -37,8 +41,11 @@ export function SetupScreen({ patient, protocol, loadError, band, bandStatus, on
   const [skeletonOnly, setSkeletonOnly] = useState(false);
   const [voice, setVoice] = useState(true);
   const [bandMessage, setBandMessage] = useState<string | null>(null);
+  const [rxMessage, setRxMessage] = useState<string | null>(null);
 
   const included = rows.filter((r) => r.included);
+  const root = useRef<HTMLDivElement>(null);
+  useReveal(root);
 
   const changePhase = (p: Phase) => {
     setPhase(p);
@@ -62,9 +69,20 @@ export function SetupScreen({ patient, protocol, loadError, band, bandStatus, on
     bandAction('Syncing daily use', async () => {
       const records = await band!.dumpDaily();
       if (!patient.id) return `Got ${records.length} minutes of daily use (not saved: offline)`;
-      const n = await uploadDailyUse(records, patient.id);
+      const n = await uploadDailyUse(patient.id, records);
       return `Saved ${n} minutes of daily use`;
     });
+
+  const saveRx = async () => {
+    setRxMessage('Saving…');
+    try {
+      const rx = included.map(({ included: _included, ...p }) => p);
+      await savePrescriptions(patient.id!, phase, rx);
+      setRxMessage(`Saved phase ${phase} for ${patient.displayName}.`);
+    } catch (err) {
+      setRxMessage(`Could not save: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   const canStart = included.length > 0 && (mode === 'exercise' || rangeSides.length > 0);
 
@@ -77,8 +95,8 @@ export function SetupScreen({ patient, protocol, loadError, band, bandStatus, on
   };
 
   return (
-    <div className="setup">
-      <header className="setup-header">
+    <div className="setup" ref={root}>
+      <header className="setup-header" data-reveal>
         <div>
           <p className="eyebrow">Shoulder recovery session</p>
           <h1>{patient.displayName}</h1>
@@ -88,13 +106,11 @@ export function SetupScreen({ patient, protocol, loadError, band, bandStatus, on
             {patient.surgeryDate ? ` · surgery ${new Date(patient.surgeryDate + 'T00:00').toLocaleDateString()}` : ''}
           </p>
         </div>
-        <span className={`badge ${supabase ? (loadError ? 'badge-warn' : 'badge-ok') : ''}`}>
-          {supabase ? (loadError ? 'Backend error' : 'Saving to backend') : 'Offline: not saving'}
-        </span>
+        <span className={`badge ${online ? 'badge-ok' : loadError ? 'badge-warn' : ''}`}>{online ? 'Saving to your record' : loadError ? 'Server error' : 'Offline: not saving'}</span>
       </header>
       {loadError && <p className="notice">Could not load the patient record ({loadError}). Using the default protocol.</p>}
 
-      <section className="card">
+      <section className="card" data-reveal>
         <h2>Session</h2>
         <div className="segmented" role="radiogroup" aria-label="Session type">
           <button role="radio" aria-checked={mode === 'exercise'} className={mode === 'exercise' ? 'selected' : ''} onClick={() => setMode('exercise')}>
@@ -179,10 +195,18 @@ export function SetupScreen({ patient, protocol, loadError, band, bandStatus, on
             ))}
           </tbody>
         </table>
-        <p className="fine">Limits shown are demo placeholders. A patient's real limits come from their surgeon or physical therapist.</p>
+        <div className="inline">
+          <p className="fine">Limits shown are demo placeholders. A patient's real limits come from their surgeon or physical therapist.</p>
+          {isClinician && online && mode === 'exercise' && (
+            <button className="secondary" onClick={saveRx}>
+              Save as phase {phase} plan
+            </button>
+          )}
+        </div>
+        {rxMessage && <p className="fine">{rxMessage}</p>}
       </section>
 
-      <section className="card">
+      <section className="card" data-reveal>
         <h2>Armband</h2>
         <p className="muted">
           {bandStatus === 'connected'
@@ -221,7 +245,7 @@ export function SetupScreen({ patient, protocol, loadError, band, bandStatus, on
         {bandMessage && <p className="fine">{bandMessage}</p>}
       </section>
 
-      <section className="card">
+      <section className="card" data-reveal>
         <h2>Comfort</h2>
         <div className="inline">
           <label className="toggle">
@@ -243,7 +267,7 @@ export function SetupScreen({ patient, protocol, loadError, band, bandStatus, on
         <p className="fine">Video stays on this computer. Only angles and counts are saved.</p>
       </section>
 
-      <button className="primary start" disabled={!canStart} onClick={start}>
+      <button className="primary start" data-reveal disabled={!canStart} onClick={start}>
         Start {mode === 'exercise' ? 'session' : 'range check'}
       </button>
     </div>

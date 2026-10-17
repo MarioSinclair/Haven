@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { EASE, gsap, pop, reducedMotion, shake, useGSAP } from '../lib/motion';
 import type { BandSource } from '../lib/band/band';
 import { cameraTruth } from '../lib/band/simTruth';
 import { computeMetrics } from '../lib/pose/angles';
@@ -6,6 +7,7 @@ import { drawOverlay } from '../lib/pose/overlay';
 import { EXERCISES, type SessionPlan } from '../lib/protocol';
 import { SessionEngine, type SessionResult } from '../lib/session/engine';
 import { MIN_CAMERA_CONFIDENCE } from '../lib/session/fusion';
+import type { BandTracePoint } from '../lib/apiTypes';
 import type { ImuReading } from '../lib/types';
 import type { Coach } from '../lib/voice/coach';
 import { usePoseCamera } from '../hooks/usePoseCamera';
@@ -23,7 +25,7 @@ interface Props {
   band: BandSource | null;
   coach: Coach;
   skeletonOnly: boolean;
-  onFinish: (result: SessionResult) => void;
+  onFinish: (result: SessionResult, bandTrace: BandTracePoint[]) => void;
 }
 
 export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeletonOnly, onFinish }: Props) {
@@ -32,16 +34,22 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imuRef = useRef<ImuReading | null>(null);
+  // The band's raw stream for this session, stored as a time series (capped at 30 min of 20 Hz).
+  const traceRef = useRef<BandTracePoint[]>([]);
   const finishRef = useRef(onFinish);
   finishRef.current = onFinish;
   const [skeletonOnly, setSkeletonOnly] = useState(initialSkeletonOnly);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const repsRef = useRef<HTMLSpanElement>(null);
+  const angleRef = useRef<HTMLSpanElement>(null);
   const [voiceOn, setVoiceOn] = useState(coach.enabled);
 
   useEffect(
     () =>
       engine.onEvent((e) => {
         if (e.type === 'cue') coach.say(e.cue);
-        if (e.type === 'done') finishRef.current(e.result);
+        if (e.type === 'rep') pop(repsRef.current);
+        if (e.type === 'done') finishRef.current(e.result, traceRef.current);
       }),
     [engine, coach],
   );
@@ -50,6 +58,7 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
     if (!band) return;
     return band.onSample((s, t) => {
       imuRef.current = { deg: s.elevationDeg, t };
+      if (traceRef.current.length < 36_000) traceRef.current.push({ t: Date.now(), deg: s.elevationDeg, rate: s.rateDps });
     });
   }, [band]);
 
@@ -76,6 +85,19 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
     });
   });
 
+  useEffect(() => {
+    if (snap.ceilingState === 'over') shake(angleRef.current);
+  }, [snap.ceilingState]);
+
+  // Prompts slide up as they appear.
+  useGSAP(
+    () => {
+      if (reducedMotion()) return;
+      gsap.from('.modal', { autoAlpha: 0, y: 28, scale: 0.97, duration: 0.55, ease: EASE });
+    },
+    { scope: stageRef, dependencies: [snap.stage] },
+  );
+
   const block = snap.block ?? plan.blocks[0];
   const exercise = EXERCISES[block.exerciseId];
   const lostCamera = snap.stage === 'active' && snap.angleSource === 'imu';
@@ -88,7 +110,7 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
 
   return (
     <div className="session">
-      <div className="stage-area">
+      <div className="stage-area" ref={stageRef}>
         <div className={`camera ${skeletonOnly ? 'skeleton-only' : ''}`}>
           <video ref={videoRef} playsInline muted />
           <canvas ref={canvasRef} />
@@ -138,14 +160,14 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
         <div className="hud-row">
           <div className="stat">
             <span className="stat-label">Reps</span>
-            <span className="stat-value">
+            <span className="stat-value" ref={repsRef}>
               {snap.repsDone}
               <small>/{block.reps}</small>
             </span>
           </div>
           <div className="stat">
             <span className="stat-label">Arm angle</span>
-            <span className={`stat-value angle-${snap.ceilingState}`}>
+            <span className={`stat-value angle-${snap.ceilingState}`} ref={angleRef}>
               {snap.angleDeg === null ? '–' : `${Math.round(snap.angleDeg)}°`}
             </span>
             <span className="stat-sub">{snap.angleSource === 'imu' ? 'from band' : snap.angleSource === 'camera' ? 'from camera' : 'not tracking'}</span>

@@ -1,45 +1,67 @@
 # Rehab Coach
 
-Guided shoulder rehab for people recovering from breast cancer surgery. A laptop camera measures arm angles live, enforces the care team's range limits, catches compensation (shrugging, leaning, bent elbow), and coaches by voice. An ESP32 + IMU armband fills in when the camera loses the arm and logs how much the arm is used in daily life. Everything feeds a dashboard and an AI-written report for the patient's physical therapist.
+Guided shoulder rehab for people recovering from breast cancer surgery. A laptop camera measures arm angles live, enforces the care team's range limits, catches compensation (shrugging, leaning, bent elbow), and coaches by voice. An ESP32 + IMU armband fills in when the camera loses the arm and logs how much the arm is used in daily life. Everything feeds a progress dashboard and a Gemini-written report for the patient's physical therapist.
 
-**Design rule:** safety logic (limits, alerts, flags) is deterministic code. The LLM (Gemini) only writes summaries of numbers it is handed; it never decides a flag.
+**Design rule:** safety logic (limits, alerts, flags) is deterministic code. Gemini only writes prose about numbers it is handed; it never decides a flag, and the server rejects any number in its text that isn't in the data.
+
+The app name is a placeholder: change `APP_NAME` in `web/src/lib/brand.ts`.
 
 ## Layout
 
 ```
-web/                         React + Vite app, runs in Chrome
-  src/lib/pose/              MediaPipe landmarks → shoulder angles, form metrics, overlay
-  src/lib/session/           session state machine, rep counting, limits, camera/band fusion
-  src/lib/band/protocol.ts   BLE contract with the firmware (read this first if you're on hardware)
-  src/lib/baseline.ts        what progress is measured against (pre-op > healthy arm > general goal)
-  src/lib/db.ts              Supabase reads/writes
-supabase/
-  migrations/                schema
-  seed.sql                   generated demo patient (don't edit by hand)
-  scripts/generate-seed.mjs  regenerates seed.sql
+web/                          React + Vite app, runs in Chrome
+  src/lib/pose/               MediaPipe landmarks → shoulder angles, form metrics, overlay
+  src/lib/session/            session state machine, rep counting, limits, camera/band fusion
+  src/lib/band/protocol.ts    BLE contract with the firmware (read this first if you're on hardware)
+  src/lib/flags.ts            the deterministic flag rules (shared with the server)
+  src/lib/numberGuard.ts      checks every number Gemini writes against the data
+  src/lib/baseline.ts         what progress is measured against (pre-op > healthy arm > general goal)
+  src/components/             screens; JudgesPage is served at /judges
+server/                       Express API: Auth0, Tiger Data, Gemini
+db/
+  migrations/001_schema.sql   plain Postgres schema
+  migrations/002_timescale.sql hypertables, continuous aggregates, columnstore (Tiger only)
+  seed.sql                    generated demo patient (don't edit by hand)
+  scripts/generate-seed.mjs   regenerates seed.sql
 ```
 
-## Run the web app
+## Run it locally
+
+Two terminals. The web app works on its own too (sessions just aren't saved).
 
 ```sh
+# 1. API server
+cd server
+cp .env.example .env          # fill in DATABASE_URL at least
+npm install
+npm run db:setup -- --seed    # applies migrations, loads the demo patient
+npm run dev                   # http://localhost:8787/api/health
+
+# 2. Web app
 cd web
-npm install      # also copies the MediaPipe runtime and downloads the pose model into public/
-npm run dev      # open http://localhost:5173 in Chrome
-npm test         # unit tests for angles, reps, limits, fusion, packets, the session flow
+npm install                   # also copies the MediaPipe runtime and downloads the pose model
+npm run dev                   # http://localhost:5173 (and /judges)
+npm test
 ```
 
-Judges' overview: http://localhost:5173/judges (fill in the team, links and domain at the top of `web/src/components/JudgesPage.tsx`).
+Vite forwards `/api` to the server. Missing pieces switch off cleanly: no Auth0 settings means dev mode (everyone is the demo clinician), and no Gemini key means the report button explains what's missing.
 
-It runs without a backend (sessions aren't saved) and without hardware: **Simulate band** follows the camera angle through the real packet encoder and parser. Web Bluetooth and voice input need Chrome.
+## Services
 
-## Backend (Supabase)
+**Tiger Data.** Create a free service at console.cloud.timescale.com and put its connection string in `DATABASE_URL`. `db:setup` applies `002_timescale.sql` only where TimescaleDB is available, so plain Postgres works too. Reps, daily use and the raw 20 Hz band stream are hypertables; the dashboard reads the `rom_daily` and `daily_use_daily` continuous aggregates in real-time mode.
 
-1. Create a Supabase project. In the SQL editor, run `supabase/migrations/20261015000000_init.sql`, then `supabase/seed.sql`.
-2. Copy `web/.env.example` to `web/.env.local` and fill in the project URL and anon key.
+**Auth0.** In the Auth0 dashboard:
+1. Applications → APIs → Create API. Its Identifier is the audience. Put the tenant domain and the identifier in `server/.env` (`AUTH0_DOMAIN`, `AUTH0_AUDIENCE`).
+2. Applications → Create Application → Single Page Application. Add `http://localhost:5173` (and the live domain) to Allowed Callback URLs, Allowed Logout URLs and Allowed Web Origins. Turn on Refresh Token Rotation. Put the domain, client ID and audience in `web/.env.local`.
+3. List clinician emails in `CLINICIAN_EMAILS`. Everyone else signs in as a patient linked to the demo patient.
 
-On demo day, run `node supabase/scripts/generate-seed.mjs` and re-run `seed.sql` so the demo data ends yesterday.
+**Gemini.** Get a key from Google AI Studio and set `GEMINI_API_KEY`. `GEMINI_MODEL` defaults to `gemini-3.8-flash`. Requests go out with storage off.
 
-RLS policies are wide open so the app works without login. Don't put real patient data in this.
+## Deploy (GoDaddy domain)
+
+`cd web && npm run build`, then run the server (`npm start`) on any Node host (Render, Railway, Fly). The server serves `web/dist` itself, so one deploy covers the whole site. Point the domain's DNS at the host, and add the domain to the Auth0 application's allowed URLs. It must be HTTPS: Chrome only allows the camera and Bluetooth on secure origins.
+
+On demo day, run `node db/scripts/generate-seed.mjs` and `npm run db:setup -- --seed` so the demo data ends yesterday.
 
 ## The demo patient
 
@@ -72,4 +94,4 @@ Full contract in [web/src/lib/band/protocol.ts](web/src/lib/band/protocol.ts). I
 
 ## Not built yet
 
-Dashboard, clinician setup view, the deterministic flag rules, the Gemini report and PDF export, and the firmware itself.
+The firmware, a clinician screen listing all patients, and a test of `002_timescale.sql` against a live Tiger service.
