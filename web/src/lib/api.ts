@@ -84,6 +84,8 @@ export const createPatient = (input: PatientInput) => call<PatientBundle>('/pati
 export const updatePatient = (patientId: string, input: PatientInput) =>
   call<PatientBundle>(`/patients/${patientId}`, { method: 'PUT', body: JSON.stringify(input) });
 
+export const deletePatient = (patientId: string) => call<{ deleted: string }>(`/patients/${patientId}`, { method: 'DELETE' });
+
 export async function saveSession(patientId: string, result: SessionResult, bandTrace: BandTracePoint[]) {
   const payload: SessionPayload = {
     result: { ...result, startedAt: result.startedAt.toISOString(), endedAt: result.endedAt.toISOString() },
