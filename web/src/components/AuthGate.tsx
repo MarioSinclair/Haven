@@ -1,12 +1,17 @@
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import { setTokenGetter } from '../lib/api';
+import { LANDED_KEY } from './Logo';
+import { RibbonGate } from './RibbonGate';
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
 const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 
 export const authConfigured = !!(domain && clientId && audience);
+
+/** The ribbon intro plays once per browser session, not on every visit. */
+export const GATE_PASSED_KEY = 'gate-passed';
 
 interface AuthInfo {
   email: string | null;
@@ -18,9 +23,29 @@ const AuthContext = createContext<AuthInfo | null>(null);
 /** Signed-in user and a sign-out action, or null when Auth0 isn't configured (dev mode). */
 export const useAuthInfo = () => useContext(AuthContext);
 
-/** Requires an Auth0 sign-in before rendering the app. Without Auth0 settings it renders the app directly. */
+export function markGatePassed() {
+  try {
+    sessionStorage.setItem(GATE_PASSED_KEY, '1');
+    sessionStorage.setItem(LANDED_KEY, '1');
+  } catch {
+    // Without storage the intro just plays again next time.
+  }
+}
+
+function gatePassed(): boolean {
+  try {
+    return sessionStorage.getItem(GATE_PASSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Requires an Auth0 sign-in before rendering the app, through the ribbon gate. Without Auth0
+ * settings (dev mode) the gate still plays once per session, then lets you in as the demo clinician.
+ */
 export function AuthGate({ children }: { children: ReactNode }) {
-  if (!authConfigured) return <>{children}</>;
+  if (!authConfigured) return <DevGate>{children}</DevGate>;
   return (
     <Auth0Provider
       domain={domain!}
@@ -35,6 +60,21 @@ export function AuthGate({ children }: { children: ReactNode }) {
   );
 }
 
+function DevGate({ children }: { children: ReactNode }) {
+  const [passed, setPassed] = useState(gatePassed);
+  if (passed) return <>{children}</>;
+  return (
+    <RibbonGate
+      continueLabel="Enter the demo"
+      note="Auth0 isn't configured on this build, so you'll enter as the demo clinician."
+      onContinue={() => {
+        markGatePassed();
+        setPassed(true);
+      }}
+    />
+  );
+}
+
 function SignedIn({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated, loginWithRedirect, getAccessTokenSilently, logout, user, error } = useAuth0();
 
@@ -42,24 +82,17 @@ function SignedIn({ children }: { children: ReactNode }) {
 
   if (!isAuthenticated) {
     return (
-      <div className="setup">
-        <header className="setup-header">
-          <div>
-            <p className="eyebrow">Shoulder recovery</p>
-            <h1>Sign in to continue</h1>
-            <p className="muted">Patients see their own progress. Physical therapists see their patients and set their limits.</p>
-          </div>
-        </header>
-        {error && <p className="notice">{error.message}</p>}
-        <div className="inline">
-          <button className="primary" onClick={() => loginWithRedirect()}>
-            Sign in
-          </button>
-          <a className="button" href="/judges">
-            For judges
-          </a>
-        </div>
-      </div>
+      <>
+        {error && <p className="notice gate-error">{error.message}</p>}
+        <RibbonGate
+          continueLabel="Sign in"
+          note="Secure sign-in by Auth0. Patients see their own progress; physical therapists see their patients and set their limits."
+          onContinue={() => {
+            markGatePassed();
+            void loginWithRedirect();
+          }}
+        />
+      </>
     );
   }
 
