@@ -1,32 +1,74 @@
 import type { AffectedSide, CameraView, ExerciseId, Phase, Side } from './types';
 
+/**
+ * How the camera counts an exercise: each raise and its peak angle (the only kind that measures
+ * range, so the only kind with a limit or goal), or each shoulder roll.
+ */
+export type Measure = 'raise' | 'roll';
+
 export interface Exercise {
   id: ExerciseId;
   name: string;
+  /** For charts and other tight spots. */
+  short: string;
   view: CameraView;
+  /** Spoken when the exercise starts. */
   instruction: string;
+  /** On screen during the exercise, beside the animated demo. */
+  brief: string;
+  measure: Measure;
 }
 
 export const EXERCISES: Record<ExerciseId, Exercise> = {
   side_raise: {
     id: 'side_raise',
     name: 'Side raise',
+    short: 'Side raise',
     view: 'front',
+    measure: 'raise',
     instruction: 'Face the camera. Raise your arm out to the side with your thumb up, then lower slowly.',
+    brief: 'Out to the side, thumb up. Lower slowly.',
   },
   scaption: {
     id: 'scaption',
     name: 'Scaption raise',
+    short: 'Scaption',
     view: 'front',
+    measure: 'raise',
     instruction: 'Face the camera. Raise your arm slightly in front of your body, thumb up, then lower slowly.',
+    brief: 'Slightly in front, thumb up. Lower slowly.',
   },
   forward_raise: {
     id: 'forward_raise',
     name: 'Forward raise',
+    short: 'Forward',
     view: 'side',
+    measure: 'raise',
     instruction: 'Turn so your working arm is closest to the camera. Raise your arm straight in front of you, then lower slowly.',
+    brief: 'Straight in front of you. Lower slowly.',
+  },
+  wall_walk: {
+    id: 'wall_walk',
+    name: 'Wall walk',
+    short: 'Wall walk',
+    view: 'side',
+    measure: 'raise',
+    instruction: 'Stand facing a wall with your working arm closest to the camera. Walk your fingers up the wall as high as is comfortable, then walk them back down.',
+    brief: 'Walk your fingers up the wall, then back down.',
+  },
+  shoulder_roll: {
+    id: 'shoulder_roll',
+    name: 'Shoulder rolls',
+    short: 'Rolls',
+    view: 'front',
+    measure: 'roll',
+    instruction: 'Face the camera with your arms relaxed. Gently roll your shoulders up, back and down. Small rolls are fine.',
+    brief: 'Gently up, back and down. Small rolls are fine.',
   },
 };
+
+/** Only raises measure range, so only they take a limit or goal, feed range charts or make a range check. */
+export const measuresRange = (id: ExerciseId) => EXERCISES[id].measure === 'raise';
 
 export interface Prescription {
   exerciseId: ExerciseId;
@@ -38,12 +80,13 @@ export interface Prescription {
   sets: number;
 }
 
-// PLACEHOLDER protocol for the demo. Real limits come from the patient's surgeon or PT through
-// the clinician view; the 90° drain-phase limit is common but not universal.
+// PLACEHOLDER protocol for the demo. Real limits and exercises come from the patient's surgeon or
+// PT through the clinician view; the 90° drain-phase limit is common but not universal.
 export const DEFAULT_PROTOCOL: Record<Phase, { label: string; prescriptions: Prescription[] }> = {
   1: {
     label: 'Drains in',
     prescriptions: [
+      { exerciseId: 'shoulder_roll', ceilingDeg: null, goalDeg: null, reps: 10, sets: 1 },
       { exerciseId: 'side_raise', ceilingDeg: 90, goalDeg: null, reps: 10, sets: 2 },
       { exerciseId: 'scaption', ceilingDeg: 90, goalDeg: null, reps: 10, sets: 2 },
     ],
@@ -51,8 +94,10 @@ export const DEFAULT_PROTOCOL: Record<Phase, { label: string; prescriptions: Pre
   2: {
     label: 'Drains out, building range',
     prescriptions: [
+      { exerciseId: 'shoulder_roll', ceilingDeg: null, goalDeg: null, reps: 10, sets: 1 },
       { exerciseId: 'side_raise', ceilingDeg: null, goalDeg: null, reps: 10, sets: 2 },
       { exerciseId: 'scaption', ceilingDeg: null, goalDeg: null, reps: 10, sets: 2 },
+      { exerciseId: 'wall_walk', ceilingDeg: null, goalDeg: null, reps: 5, sets: 2 },
     ],
   },
   3: {
@@ -61,6 +106,7 @@ export const DEFAULT_PROTOCOL: Record<Phase, { label: string; prescriptions: Pre
       { exerciseId: 'side_raise', ceilingDeg: null, goalDeg: null, reps: 12, sets: 3 },
       { exerciseId: 'scaption', ceilingDeg: null, goalDeg: null, reps: 12, sets: 3 },
       { exerciseId: 'forward_raise', ceilingDeg: null, goalDeg: null, reps: 12, sets: 3 },
+      { exerciseId: 'wall_walk', ceilingDeg: null, goalDeg: null, reps: 8, sets: 2 },
     ],
   },
 };

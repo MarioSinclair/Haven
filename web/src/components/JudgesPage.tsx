@@ -42,8 +42,8 @@ const FACTS = [
 
 const TLDR = [
   { k: 'For', v: 'People recovering from breast cancer surgery, and the physical therapists who guide them.' },
-  { k: 'Problem', v: 'Shoulder exercises after a mastectomy are done alone at home. Between visits the PT can’t see how high the arm got, whether it hurt, or whether a limit was broken.' },
-  { k: 'Built', v: 'A camera coach that enforces the PT’s limits, an armband that keeps enforcing them between sessions, and a console with reports written by Gemini from numbers our code computed.' },
+  { k: 'Problem', v: 'Rehab after a mastectomy is mostly done alone at home. Between visits the PT can’t see how high the arm got, whether it hurt, or whether a limit was broken.' },
+  { k: 'Built', v: 'A personal rehab coach for home: a camera coach that enforces the PT’s limits, an armband that keeps enforcing them between sessions, and a console with reports written by Gemini from numbers our code computed.' },
   { k: 'Stack', v: 'MediaPipe · XIAO ESP32-S3 + BNO085 · React · Express · Tiger Data · Auth0 · Gemini' },
 ];
 
@@ -105,7 +105,6 @@ export function JudgesPage() {
           <a href="#replay">Replay</a>
           <a href="#console">Console</a>
           <a href="#how">How it works</a>
-          <a href="#tracks">Prize tracks</a>
         </div>
         <div className="topbar-right">
           <a className="button primary" href="/">
@@ -116,7 +115,7 @@ export function JudgesPage() {
 
       <div className="judges">
         <header className="j-hero">
-          <p className="eyebrow j-reveal">For judges · everything from this one link</p>
+          <p className="eyebrow j-reveal">A personal post-mastectomy rehab coach · for judges</p>
           <h1>
             Getting your <em>reach</em> back after breast cancer surgery.
           </h1>
@@ -242,10 +241,11 @@ export function JudgesPage() {
               </article>
               <article className="card j-reveal">
                 <p className="eyebrow">Armband</p>
-                <h3>Fills the gaps</h3>
+                <h3>Real-time monitoring</h3>
                 <p className="muted">
-                  A XIAO ESP32-S3 with a BNO085 IMU streams the arm's angle over Bluetooth at 20 Hz. When the camera loses the arm, the band takes over. Between sessions it keeps the
-                  PT's limit on its own: it beeps faster as the arm nears the limit, alarms above it, and chirps if the arm hasn't been raised for a while.
+                  A XIAO ESP32-S3 with a BNO085 IMU monitors the arm in real time, streaming its angle over Bluetooth at 20 Hz. In a session it takes over when the camera loses the
+                  arm. Between sessions it keeps the PT's limit on its own: it beeps faster as the arm nears the limit, alarms above it, and chirps if the arm hasn't been raised for a
+                  while.
                 </p>
               </article>
               <article className="card j-reveal">
@@ -313,46 +313,8 @@ export function JudgesPage() {
             </div>
           </section>
 
-          <section className="j-section" id="tracks">
-            <SectionHead n="06" title="Prize tracks" />
-            <div className="j-cards">
-              <article className="card j-reveal">
-                <h3>Best use of Gemini API</h3>
-                <p className="muted">
-                  Two documents for two readers from the same data: a warm summary for the patient and a structured report for the PT, with questions for the next visit. Structured
-                  output fixes the format; a number check keeps it honest.
-                </p>
-              </article>
-              <article className="card j-reveal">
-                <h3>Best use of Tiger Data</h3>
-                <p className="muted">
-                  Reps, daily-use minutes and the raw 20 Hz band stream are hypertables. The console reads real-time continuous aggregates, so a session shows up the moment it is saved,
-                  and older band data moves to the columnstore. Panel 04 above shows the live tables.
-                </p>
-              </article>
-              <article className="card j-reveal">
-                <h3>Best use of Auth0</h3>
-                <p className="muted">
-                  Patients and physical therapists sign in through Auth0. The API verifies every token and maps each identity to a role: patients see only their own record, and only
-                  clinicians can change a patient's limits.
-                </p>
-              </article>
-              <article className="card j-reveal">
-                <h3>Hardware</h3>
-                <p className="muted">
-                  The band computes elevation on the board as the angle between the current gravity vector and the one captured with the arm hanging, so it works however it is
-                  strapped on. The strap is wide and loose, because patients are told to avoid anything tight on the arm after lymph node removal.
-                </p>
-              </article>
-              <article className="card j-reveal">
-                <h3>Best domain from GoDaddy Registry</h3>
-                <p className="muted">{LIVE_DOMAIN ? `Live at ${LIVE_DOMAIN}.` : 'Deployed on our own domain.'}</p>
-              </article>
-            </div>
-          </section>
-
           <section className="j-section j-reveal">
-            <SectionHead n="07" title="Privacy and honest notes" />
+            <SectionHead n="06" title="Privacy and honest notes" />
             <ul className="j-list">
               <li>Video never leaves the laptop. Pose tracking runs on-device; only angles, counts and answers are stored.</li>
               <li>Patients can hide the camera image and see only an outline of their arm, which matters after chest surgery.</li>
@@ -365,7 +327,7 @@ export function JudgesPage() {
           </section>
 
           <section className="j-section j-reveal">
-            <SectionHead n="08" title="Team" />
+            <SectionHead n="07" title="Team" />
             <ul className="j-team">
               {TEAM.map((m) => (
                 <li key={m.name}>

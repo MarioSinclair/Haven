@@ -1,7 +1,7 @@
 import type { ExerciseProgress, PatientBundle, PatientSummary, PlanStamp, Progress, ProtocolByPhase } from '../../web/src/lib/apiTypes';
 import { resolveReference } from '../../web/src/lib/baseline';
 import { computeFlags, daysBetween, type RomDay, type Severity } from '../../web/src/lib/flags';
-import { affectedSides, DEFAULT_PROTOCOL, GENERAL_GOAL_DEG } from '../../web/src/lib/protocol';
+import { affectedSides, DEFAULT_PROTOCOL, GENERAL_GOAL_DEG, measuresRange } from '../../web/src/lib/protocol';
 import type { ExerciseId, Phase, Side } from '../../web/src/lib/types';
 import { config } from './config';
 import { db, HttpError } from './db';
@@ -94,7 +94,9 @@ export async function loadProgress(patientId: string, asOf?: string): Promise<Pr
     ),
   ]);
 
-  const romDays: RomDay[] = rom.rows.map((r) => ({
+  // Shoulder rolls and other moves that don't measure range stay out of range charts and flags.
+  const romRows = rom.rows.filter((r) => measuresRange(r.exercise_id));
+  const romDays: RomDay[] = romRows.map((r) => ({
     day: r.day,
     exerciseId: r.exercise_id,
     side: r.side,
@@ -112,8 +114,8 @@ export async function loadProgress(patientId: string, asOf?: string): Promise<Pr
     limitByPhase[phase] = ceilings.length ? Math.min(...ceilings) : null;
   }
 
-  const groups = new Map<string, typeof rom.rows>();
-  for (const r of rom.rows) groups.set(`${r.exercise_id}:${r.side}`, [...(groups.get(`${r.exercise_id}:${r.side}`) ?? []), r]);
+  const groups = new Map<string, typeof romRows>();
+  for (const r of romRows) groups.set(`${r.exercise_id}:${r.side}`, [...(groups.get(`${r.exercise_id}:${r.side}`) ?? []), r]);
   const exercises: ExerciseProgress[] = [...groups.values()].map((rows) => {
     const exerciseId = rows[0].exercise_id as ExerciseId;
     const side = rows[0].side as Side;

@@ -2,7 +2,7 @@ export type Side = 'left' | 'right';
 export type AffectedSide = Side | 'both';
 export type AngleSource = 'camera' | 'imu';
 export type CameraView = 'front' | 'side';
-export type ExerciseId = 'side_raise' | 'scaption' | 'forward_raise';
+export type ExerciseId = 'side_raise' | 'scaption' | 'forward_raise' | 'wall_walk' | 'shoulder_roll';
 export type Phase = 1 | 2 | 3;
 
 /** Everything the session needs from one camera frame, in degrees and torso-normalized units. */

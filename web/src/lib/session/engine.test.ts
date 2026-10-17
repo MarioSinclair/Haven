@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Block, SessionPlan } from '../protocol';
 import type { ImuReading, PoseMetrics } from '../types';
 import { SessionEngine, type EngineEvent, type StageName } from './engine';
+import { buildExercisePlan, buildRangeCheckPlan, EXERCISES } from '../protocol';
+import { allLines } from '../voice/lines';
 
 const FRAME_MS = 33;
 
@@ -39,7 +41,13 @@ class Driver {
     const at = (t: number) => 10 + ((peak - 10) * (1 - Math.cos((2 * Math.PI * (t - start)) / dur))) / 2;
     this.hold(dur + 600, (t) => (t - start <= dur ? frame(at(t), over(at(t))) : frame(10)), imuOffset === null ? undefined : (t) => (t - start <= dur ? at(t) + imuOffset : 10 + imuOffset));
   }
-  stages(): StageName[] {
+  /** One shoulder roll: the ear-to-shoulder gap closes by `closes` (0–1) and opens again, arm hanging. */
+  roll(closes = 0.4) {
+    const start = this.t;
+    const dur = 1600;
+    this.hold(dur + 400, (t) => frame(10, { earLift: 0.3 * (1 - (t - start <= dur ? (closes / 2) * (1 - Math.cos((2 * Math.PI * (t - start)) / dur)) : 0)) }));
+  }
+    stages(): StageName[] {
     return this.events.filter((e) => e.type === 'stage').map((e) => (e as { stage: StageName }).stage);
   }
   cues(): string[] {
@@ -156,5 +164,48 @@ describe('SessionEngine', () => {
     raise(80, (_deg, elapsed) => elapsed >= 1200 && elapsed < 1200 + FRAME_MS);
     expect(repEvents()).toHaveLength(1);
     expect(d.engine.getSnapshot().stage).toBe('pain');
+  });
+
+  it('only ever says lines the voice pack records', () => {
+    const recorded = new Set(allLines());
+    const spoken = new Set<string>();
+    const run = (p: SessionPlan, peak: number) => {
+      const d = new Driver(new SessionEngine(p));
+      // Side-on exercises need the patient turned; rolls need the shoulder to lift.
+      const pose = () => (d.engine.block && EXERCISES[d.engine.block.exerciseId].view === 'side' ? { facingRatio: 0.2 } : {});
+      d.hold(4000, () => frame(10, pose())); // position and calibrate
+      for (let i = 0; i < 60 && !d.stages().includes('done'); i++) {
+        const stage = d.engine.getSnapshot().stage;
+        if (stage === 'pain') d.engine.submitPain(2);
+        else if (stage === 'symptoms') d.engine.submitSymptoms({ armHeaviness: false, armpitCord: false, note: '' });
+        else if (stage === 'rest' || stage === 'position' || stage === 'calibrate') d.hold(p.restMs + 2600, () => frame(10, pose()));
+        else if (EXERCISES[d.engine.block!.exerciseId].measure === 'roll') d.roll();
+        else d.rep(peak, (deg) => ({ ...pose(), ...(deg > 60 ? { earLift: 0.1, trunkLeanDeg: 20, elbowDeg: 120 } : {}) }));
+      }
+      expect(d.stages()).toContain('done');
+      for (const e of d.events) if (e.type === 'cue') spoken.add(e.cue.text);
+    };
+    run({ ...buildExercisePlan(1, 'both', [{ exerciseId: 'side_raise', ceilingDeg: 90, goalDeg: null, reps: 3, sets: 2 }, { exerciseId: 'scaption', ceilingDeg: 97, goalDeg: null, reps: 2, sets: 1 }]), restMs: 500 }, 110);
+    run({ ...buildExercisePlan(2, 'left', [{ exerciseId: 'shoulder_roll', ceilingDeg: null, goalDeg: null, reps: 2, sets: 1 }, { exerciseId: 'wall_walk', ceilingDeg: 120, goalDeg: null, reps: 2, sets: 1 }]), restMs: 500 }, 110);
+    run(buildRangeCheckPlan(1, ['left'], ['side_raise']), 120);
+    expect([...spoken].filter((line) => !recorded.has(line))).toEqual([]);
+    expect(spoken.size).toBeGreaterThan(10);
+  });
+
+  it('counts shoulder rolls from the shoulder lifting, with no limit or form flags', () => {
+    const d = new Driver(new SessionEngine(plan({ exerciseId: 'shoulder_roll', ceilingDeg: null, reps: 3 })));
+    d.hold(3000, () => frame(10));
+    // Camera jitter isn't a roll.
+    d.hold(3000, (t) => frame(10, { earLift: 0.3 * (1 + 0.015 * Math.sin(t / 37) * Math.cos(t / 91)) }));
+    d.roll(0.04);
+    expect(d.events.filter((e) => e.type === 'rep')).toHaveLength(0);
+    // A small, gentle roll counts, as does a fuller one.
+    d.roll(0.12);
+    d.roll(0.12);
+    d.roll();
+    expect(d.events.filter((e) => e.type === 'rep')).toHaveLength(3);
+    expect(d.engine.getSnapshot().stage).toBe('pain');
+    expect(d.cues()).not.toContain('hike');
+    expect(d.engine.result.sets[0].reps.every((r) => !r.overCeiling && !r.shoulderHike)).toBe(true);
   });
 });

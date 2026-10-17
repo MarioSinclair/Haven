@@ -19,7 +19,7 @@ export function ReportView({ report }: { report: Report }) {
           {shortDay(report.periodStart)} – {shortDay(report.periodEnd)} · {s.sessions_completed} sessions
         </p>
         <h3>
-          {s.patient.name}: {s.patient.surgery ?? 'shoulder recovery'}
+          {s.patient.name}: {s.patient.surgery ?? 'post-mastectomy rehab'}
         </h3>
         {s.patient.days_since_surgery !== null && (
           <p className="muted">

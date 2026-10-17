@@ -2,7 +2,7 @@
 // Shared so the form and the server reject the same things with the same words.
 import type { PatientRecord, ProtocolByPhase, SessionResultJson } from './apiTypes';
 import { baselineSourceFor } from './baseline';
-import { EXERCISES, type Prescription } from './protocol';
+import { EXERCISES, measuresRange, type Prescription } from './protocol';
 import type { AffectedSide, ExerciseId, Phase } from './types';
 
 export interface PatientInput {
@@ -102,10 +102,14 @@ export function parsePrescriptions(body: unknown): Prescription[] {
     if (seen.has(exerciseId)) throw new Error(`${EXERCISES[exerciseId].name} is listed twice.`);
     seen.add(exerciseId);
     const name = EXERCISES[exerciseId].name;
+    const ceilingDeg = optionalInt(raw.ceilingDeg, `${name} limit`, LIMIT_RANGE);
+    const goalDeg = optionalInt(raw.goalDeg, `${name} goal`, LIMIT_RANGE);
+    // Only raises measure range; a limit on anything else would never be checked.
+    if (!measuresRange(exerciseId) && (ceilingDeg !== null || goalDeg !== null)) throw new Error(`${name} doesn't measure range, so it has no limit or goal.`);
     return {
       exerciseId,
-      ceilingDeg: optionalInt(raw.ceilingDeg, `${name} limit`, LIMIT_RANGE),
-      goalDeg: optionalInt(raw.goalDeg, `${name} goal`, LIMIT_RANGE),
+      ceilingDeg,
+      goalDeg,
       reps: requiredInt(raw.reps, `${name} reps`, REPS_RANGE),
       sets: requiredInt(raw.sets, `${name} sets`, SETS_RANGE),
     };
@@ -131,6 +135,7 @@ export function checkSession(
     if (s.side !== 'left' && s.side !== 'right') throw new Error(`${name} needs a side.`);
     if (s.kind !== result.kind) throw new Error(`${name} doesn't match the session kind.`);
     let ceilingDeg: number | null = null;
+    if (s.kind === 'assessment' && !measuresRange(s.exerciseId)) throw new Error(`${name} isn't a range check exercise.`);
     if (s.kind === 'exercise') {
       const rx = protocol[phase].find((p) => p.exerciseId === s.exerciseId);
       if (!rx) throw new Error(`${name} isn't in the phase ${phase} plan.`);

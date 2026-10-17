@@ -84,6 +84,12 @@ export function App() {
     return band.onStatus(setBandStatus);
   }, [band]);
 
+  // Load the voice pack while the patient gets ready, so the first line already has the warm voice.
+  const patientSide = ready && (me?.role !== 'clinician' || view === 'patient');
+  useEffect(() => {
+    if (patientSide) void coach.preload();
+  }, [patientSide, coach]);
+
   // The PT's limit and reminder go to the band whenever it connects or the plan changes. Only a
   // plan loaded from the server counts: offline, the placeholder protocol is nobody's decision.
   const plan = current?.bundle;

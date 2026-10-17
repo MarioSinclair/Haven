@@ -255,7 +255,7 @@ export function RibbonGate({ onContinue, continueLabel, note }: Props) {
         </button>
 
         <div className="gate-intro">
-          <p className="eyebrow">Shoulder recovery after breast cancer surgery</p>
+          <p className="eyebrow">Your personal post-mastectomy rehab coach</p>
           <p className={`pull-hint ${phase}`} aria-live="polite">
             {HINT[phase]}
           </p>

@@ -65,6 +65,13 @@ describe('phase plans', () => {
     expect(() => parsePrescriptions([{ ...rx, sets: 1.5 }])).toThrow(/sets/);
   });
 
+  it('takes no limit or goal for shoulder rolls, which are counted rather than measured', () => {
+    expect(() => parsePrescriptions([{ exerciseId: 'shoulder_roll', ceilingDeg: 90, reps: 10, sets: 1 }])).toThrow(/no limit or goal/);
+    expect(parsePrescriptions([{ exerciseId: 'shoulder_roll', ceilingDeg: null, goalDeg: null, reps: 10, sets: 1 }])).toEqual([
+      { exerciseId: 'shoulder_roll', ceilingDeg: null, goalDeg: null, reps: 10, sets: 1 },
+    ]);
+  });
+
   it("gives the band the phase's strictest limit, or none", () => {
     expect(phaseLimit(DEFAULT_PROTOCOL[1].prescriptions)).toBe(90);
     expect(phaseLimit([{ exerciseId: 'side_raise', ceilingDeg: 120, goalDeg: null, reps: 10, sets: 2 }, { exerciseId: 'scaption', ceilingDeg: 100, goalDeg: null, reps: 10, sets: 2 }])).toBe(100);

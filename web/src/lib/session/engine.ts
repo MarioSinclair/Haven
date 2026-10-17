@@ -5,6 +5,7 @@ import type { AngleSource, CompensationFlags, ExerciseId, ImuReading, Phase, Pos
 import { CeilingMonitor, type CeilingState } from './ceiling';
 import { Debounce, fuseAngle, MIN_CAMERA_CONFIDENCE, type FusedAngle } from './fusion';
 import { RepCounter } from './repCounter';
+import { countLine, firstSetLine, limitLine, LINES, nextSetLine, positionLine, rangeCheckLine } from '../voice/lines';
 
 export type StageName = 'position' | 'calibrate' | 'active' | 'pain' | 'rest' | 'symptoms' | 'done';
 
@@ -113,12 +114,18 @@ const LOST_CUE_AFTER_MS = 1000;
 /** Shorter tracking dropouts during a rep are a dropped frame or two, not a missed top. */
 const UNSEEN_GAP_MS = 200;
 const UNCOUNTED_NOTICE_MS = 2500;
-const UNCOUNTED_MESSAGE = "Lost sight of your arm, so that one didn't count. Try stepping back a little.";
+const UNCOUNTED_MESSAGE = LINES.uncounted;
 // Compensation thresholds. Tune these against real recordings before the demo.
 const COMP_MIN_RISE_DEG = 30;
 const HIKE_EAR_GAP_DROP = 0.25;
 const LEAN_DEG = 10;
 const ELBOW_MIN_DEG = 145;
+// Shoulder rolls count the shoulder rising toward the ear: the share of the resting ear-to-shoulder
+// gap it closes, in percent. Patients recovering from surgery may only manage a small, gentle roll,
+// so a small lift counts; the signal is smoothed so camera jitter doesn't. Tune against real recordings.
+const ROLL_START_PCT = 6;
+const ROLL_END_PCT = 3;
+const ROLL_MIN_PCT = 8;
 
 const NO_COMPENSATION: CompensationFlags = { shoulderHike: false, trunkLean: false, elbowBend: false };
 
@@ -134,6 +141,7 @@ export class SessionEngine {
   private calibSamples: { metrics: PoseMetrics; imu: number | null }[] = [];
   private rest: RestPose | null = null;
   private filter = new OneEuroFilter();
+  private liftFilter = new OneEuroFilter();
   private reps: RepCounter | null = null;
   private ceiling: CeilingMonitor | null = null;
   private hike = new Debounce(200, 400);
@@ -269,8 +277,7 @@ export class SessionEngine {
     const ex = EXERCISES[block.exerciseId];
     this.setStage('position');
     this.positionOkSince = null;
-    const lead = this.blockIndex === 0 ? "Let's begin." : 'Next exercise.';
-    this.cue({ key: 'position', text: `${lead} ${ex.name}, ${block.side} arm. ${ex.instruction}`, interrupt: true });
+    this.cue({ key: 'position', text: positionLine(this.blockIndex === 0, ex.id, block.side), interrupt: true });
   }
 
   private positionReady(cam: PoseMetrics | null): cam is PoseMetrics {
@@ -303,7 +310,7 @@ export class SessionEngine {
     this.calibStart = t;
     this.calibSamples = [];
     this.message = 'Stand tall, arms relaxed. Hold still…';
-    this.cue({ key: 'calibrate', text: 'Stand tall with your arms relaxed. Hold still.' });
+    this.cue({ key: 'calibrate', text: LINES.calibrate });
   }
 
   private tickCalibrate(t: number, cam: PoseMetrics | null, imu: ImuReading | null) {
@@ -320,7 +327,7 @@ export class SessionEngine {
     if (stdDev(elevations) > CALIBRATE_MAX_STD_DEG) {
       this.calibStart = t;
       this.calibSamples = [];
-      this.cue({ key: 'calibrate-still', text: 'Try to hold still.', cooldownMs: 3000 });
+      this.cue({ key: 'calibrate-still', text: LINES.calibrateStill, cooldownMs: 3000 });
       return;
     }
     const imuValues = this.calibSamples.map((s) => s.imu).filter((v): v is number => v !== null);
@@ -335,7 +342,11 @@ export class SessionEngine {
 
   private startSet() {
     const block = this.block!;
-    this.reps = new RepCounter({ restDeg: this.rest!.cameraDeg });
+    this.reps =
+      EXERCISES[block.exerciseId].measure === 'roll'
+        ? new RepCounter({ restDeg: 0, startAbove: ROLL_START_PCT, endBelow: ROLL_END_PCT, minRise: ROLL_MIN_PCT })
+        : new RepCounter({ restDeg: this.rest!.cameraDeg });
+    this.liftFilter.reset();
     this.ceiling = new CeilingMonitor(block.ceilingDeg);
     this.hike.reset();
     this.lean.reset();
@@ -353,15 +364,14 @@ export class SessionEngine {
     };
     this.setStage('active');
 
-    let text: string;
-    if (block.kind === 'assessment') text = `Raise your arm as high as is comfortable, ${block.reps} times.`;
-    else if (this.setIndex === 0) text = `Go ahead. ${block.reps} reps.`;
-    else text = `Set ${this.setIndex + 1} of ${block.sets}. Go ahead.`;
-    if (block.ceilingDeg !== null && this.setIndex === 0) text += ` Your limit today is ${block.ceilingDeg} degrees.`;
+    const text =
+      block.kind === 'assessment' ? rangeCheckLine(block.reps) : this.setIndex === 0 ? firstSetLine(block.reps) : nextSetLine(this.setIndex + 1, block.sets);
     this.cue({ key: 'start', text, interrupt: true });
+    if (block.ceilingDeg !== null && this.setIndex === 0) this.cue({ key: 'limit', text: limitLine(block.ceilingDeg) });
   }
 
   private tickActive(t: number, cam: PoseMetrics | null, imu: ImuReading | null) {
+    if (EXERCISES[this.block!.exerciseId].measure === 'roll') return this.tickRoll(t, cam);
     const rest = this.rest!;
     const reps = this.reps!;
     const ceiling = this.ceiling!;
@@ -373,7 +383,7 @@ export class SessionEngine {
       this.lostSince ??= t;
       this.message = "Can't see your arm. Step back or improve the lighting.";
       if (t - this.lostSince > LOST_CUE_AFTER_MS) {
-        this.cue({ key: 'lost', text: "I can't see your arm. Try stepping back a little.", cooldownMs: 8000 });
+        this.cue({ key: 'lost', text: LINES.lost, cooldownMs: 8000 });
       }
       return;
     }
@@ -386,8 +396,8 @@ export class SessionEngine {
     if (gapMs > UNSEEN_GAP_MS && (wasUp || reps.isUp)) this.acc.unseen = true;
 
     const state = ceiling.update(fused.deg);
-    if (state === 'near') this.cue({ key: 'near', text: 'Nearly at your limit.', cooldownMs: 5000 });
-    if (state === 'over') this.cue({ key: 'over', text: "That's past your limit for now. Lower slowly.", interrupt: true, beep: true, cooldownMs: 3000 });
+    if (state === 'near') this.cue({ key: 'near', text: LINES.near, cooldownMs: 5000 });
+    if (state === 'over') this.cue({ key: 'over', text: LINES.over, interrupt: true, beep: true, cooldownMs: 3000 });
 
     const comp = this.updateCompensation(t, cam, fused);
 
@@ -407,8 +417,27 @@ export class SessionEngine {
       this.cue({ key: 'uncounted', text: UNCOUNTED_MESSAGE, interrupt: true, cooldownMs: 4000 });
     }
     this.message =
-      ceiling.state === 'over' ? 'Past your limit. Lower slowly.' : t < this.uncountedUntil ? UNCOUNTED_MESSAGE : EXERCISES[this.block!.exerciseId].instruction;
+      ceiling.state === 'over' ? 'Past your limit. Lower slowly.' : t < this.uncountedUntil ? UNCOUNTED_MESSAGE : EXERCISES[this.block!.exerciseId].brief;
     if (rep && !this.acc.unseen) this.completeRep(rep.peakDeg, rep.endT - rep.startT);
+  }
+
+  /**
+   * Counts the shoulder rising toward the ear and dropping back. Camera only: the band measures
+   * the arm, not the shoulder. No limit or form checks apply.
+   */
+  private tickRoll(t: number, cam: PoseMetrics | null) {
+    const rest = this.rest!;
+    if (!cam || cam.confidence < MIN_CAMERA_CONFIDENCE) {
+      this.lostSince ??= t;
+      this.message = "Can't see your shoulders. Step back or improve the lighting.";
+      if (t - this.lostSince > LOST_CUE_AFTER_MS) this.cue({ key: 'lost', text: LINES.lost, cooldownMs: 8000 });
+      return;
+    }
+    this.lostSince = null;
+    const lift = this.liftFilter.filter(Math.max(0, (1 - cam.earLift / rest.earLift) * 100), t);
+    const rep = this.reps!.update(lift, t);
+    this.message = EXERCISES[this.block!.exerciseId].brief;
+    if (rep) this.completeRep(this.lastCamDeg ?? rest.cameraDeg, rep.endT - rep.startT);
   }
 
   private updateCompensation(t: number, cam: PoseMetrics | null, fused: FusedAngle): CompensationFlags {
@@ -420,9 +449,9 @@ export class SessionEngine {
       trunkLean: this.lean.update(watch && Math.abs(cam!.trunkLeanDeg - rest.trunkLeanDeg) > LEAN_DEG, t),
       elbowBend: this.elbow.update(watch && cam!.elbowDeg < ELBOW_MIN_DEG, t),
     };
-    if (now.shoulderHike && !before.shoulderHike) this.cue({ key: 'hike', text: 'Relax your shoulder down, away from your ear.', cooldownMs: 6000 });
-    if (now.trunkLean && !before.trunkLean) this.cue({ key: 'lean', text: 'Keep your body upright.', cooldownMs: 6000 });
-    if (now.elbowBend && !before.elbowBend) this.cue({ key: 'elbow', text: 'Keep your elbow straight.', cooldownMs: 6000 });
+    if (now.shoulderHike && !before.shoulderHike) this.cue({ key: 'hike', text: LINES.hike, cooldownMs: 6000 });
+    if (now.trunkLean && !before.trunkLean) this.cue({ key: 'lean', text: LINES.lean, cooldownMs: 6000 });
+    if (now.elbowBend && !before.elbowBend) this.cue({ key: 'elbow', text: LINES.elbow, cooldownMs: 6000 });
     return now;
   }
 
@@ -445,20 +474,20 @@ export class SessionEngine {
     this.emit({ type: 'rep', rep: result });
 
     if (set.reps.length >= set.repsTarget) this.finishSet();
-    else this.cue({ key: 'count', text: String(set.reps.length), interrupt: true });
+    else this.cue({ key: 'count', text: countLine(set.reps.length), interrupt: true });
   }
 
   private finishSet() {
     this.results.push(this.currentSet!);
     this.currentSet = null;
     if (this.block!.kind === 'assessment') {
-      this.cue({ key: 'set-done', text: 'Got it.', interrupt: true });
+      this.cue({ key: 'set-done', text: LINES.rangeCheckDone, interrupt: true });
       this.advance();
       return;
     }
     this.setStage('pain');
     this.message = 'How much pain did you feel during that set?';
-    this.cue({ key: 'set-done', text: 'Set complete. How much pain did you feel, from zero to ten?', interrupt: true });
+    this.cue({ key: 'set-done', text: LINES.painQuestion, interrupt: true });
   }
 
   private advance() {
@@ -473,7 +502,7 @@ export class SessionEngine {
     } else if (this.plan.kind === 'exercise') {
       this.setStage('symptoms');
       this.message = 'One last check before you finish.';
-      this.cue({ key: 'symptoms', text: 'Last question. Have you noticed any heaviness or swelling in your arm, or a tight cord under your arm?' });
+      this.cue({ key: 'symptoms', text: LINES.symptoms });
     } else {
       this.finish();
     }
@@ -484,7 +513,7 @@ export class SessionEngine {
     this.restUntil = this.lastT + this.plan.restMs;
     this.setStage('rest');
     this.message = 'Rest. Let your arm hang loose.';
-    this.cue({ key: 'rest', text: `Rest for ${Math.round(this.plan.restMs / 1000)} seconds.` });
+    this.cue({ key: 'rest', text: LINES.rest });
   }
 
   private afterRest() {
@@ -496,7 +525,7 @@ export class SessionEngine {
     this.endedAt = this.clock();
     this.setStage('done');
     this.message = 'Session complete.';
-    this.cue({ key: 'done', text: 'Great work. Session complete.', interrupt: true });
+    this.cue({ key: 'done', text: LINES.done, interrupt: true });
     this.emit({ type: 'done', result: this.result });
   }
 

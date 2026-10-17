@@ -4,13 +4,14 @@ import type { BandSource } from '../lib/band/band';
 import { cameraTruth } from '../lib/band/simTruth';
 import { computeMetrics } from '../lib/pose/angles';
 import { drawOverlay } from '../lib/pose/overlay';
-import { EXERCISES, type SessionPlan } from '../lib/protocol';
+import { EXERCISES, measuresRange, type SessionPlan } from '../lib/protocol';
 import { SessionEngine, type SessionResult } from '../lib/session/engine';
 import { MIN_CAMERA_CONFIDENCE } from '../lib/session/fusion';
 import type { BandTracePoint } from '../lib/apiTypes';
 import type { ImuReading } from '../lib/types';
 import type { Coach } from '../lib/voice/coach';
 import { usePoseCamera } from '../hooks/usePoseCamera';
+import { ExerciseDemo } from './ExerciseDemo';
 import { Gauge } from './Gauge';
 import { PainPrompt, RestOverlay, SymptomPrompt } from './Prompts';
 
@@ -103,6 +104,7 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
 
   const block = snap.block ?? plan.blocks[0];
   const exercise = EXERCISES[block.exerciseId];
+  const ranged = measuresRange(block.exerciseId);
   const lostCamera = snap.stage === 'active' && snap.angleSource === 'imu';
 
   const toggleVoice = () => {
@@ -160,47 +162,60 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
           </p>
         </div>
 
+        <figure className="hud-demo">
+          <ExerciseDemo exerciseId={block.exerciseId} side={block.side} limitDeg={block.ceilingDeg} size={150} />
+          <figcaption>{exercise.brief}</figcaption>
+        </figure>
+
         <div className="hud-row">
           <div className="stat">
-            <span className="stat-label">Reps</span>
+            <span className="stat-label">{ranged ? 'Reps' : 'Rolls'}</span>
             <span className="stat-value" ref={repsRef}>
               {snap.repsDone}
               <small>/{block.reps}</small>
             </span>
           </div>
-          <div className="stat">
-            <span className="stat-label">Arm angle</span>
-            <span className={`stat-value angle-${snap.ceilingState}`} ref={angleRef}>
-              {snap.angleDeg === null ? '–' : `${Math.round(snap.angleDeg)}°`}
-            </span>
-            <span className="stat-sub">{snap.angleSource === 'imu' ? 'from band' : snap.angleSource === 'camera' ? 'from camera' : 'not tracking'}</span>
-          </div>
+          {ranged && (
+            <div className="stat">
+              <span className="stat-label">Arm angle</span>
+              <span className={`stat-value angle-${snap.ceilingState}`} ref={angleRef}>
+                {snap.angleDeg === null ? '–' : `${Math.round(snap.angleDeg)}°`}
+              </span>
+              <span className="stat-sub">{snap.angleSource === 'imu' ? 'from band' : snap.angleSource === 'camera' ? 'from camera' : 'not tracking'}</span>
+            </div>
+          )}
         </div>
 
-        <div className="gauge-row">
-          <Gauge deg={snap.angleDeg} ceilingDeg={block.ceilingDeg} state={snap.ceilingState} />
-          <dl className="facts">
-            <dt>Limit</dt>
-            <dd>{block.ceilingDeg === null ? 'As tolerated' : `${block.ceilingDeg}°`}</dd>
-            <dt>Best this set</dt>
-            <dd>{snap.bestThisSet === null ? '–' : `${Math.round(snap.bestThisSet)}°`}</dd>
-            <dt>Band</dt>
-            <dd>{band ? (snap.imuDeg === null ? band.status : `${Math.round(snap.imuDeg)}°`) : 'not connected'}</dd>
-            <dt>Tracking</dt>
-            <dd>{Math.round(snap.cameraConfidence * 100)}%</dd>
-          </dl>
-        </div>
+        {/* Rolls are counted from the shoulder, so the arm gauge, limit and form checks don't apply. */}
+        {!ranged && <p className="muted">Counting each roll as your shoulder lifts toward your ear and drops back.</p>}
+        {ranged && (
+          <>
+            <div className="gauge-row">
+              <Gauge deg={snap.angleDeg} ceilingDeg={block.ceilingDeg} state={snap.ceilingState} />
+              <dl className="facts">
+                <dt>Limit</dt>
+                <dd>{block.ceilingDeg === null ? 'As tolerated' : `${block.ceilingDeg}°`}</dd>
+                <dt>Best this set</dt>
+                <dd>{snap.bestThisSet === null ? '–' : `${Math.round(snap.bestThisSet)}°`}</dd>
+                <dt>Band</dt>
+                <dd>{band ? (snap.imuDeg === null ? band.status : `${Math.round(snap.imuDeg)}°`) : 'not connected'}</dd>
+                <dt>Tracking</dt>
+                <dd>{Math.round(snap.cameraConfidence * 100)}%</dd>
+              </dl>
+            </div>
 
-        <ul className="chips" aria-label="Form checks">
-          {FORM_CHECKS.map((c) => {
-            const off = snap.compensation[c.key];
-            return (
-              <li key={c.key} className={off ? 'chip-warn' : ''}>
-                {off ? c.warn : c.ok}
-              </li>
-            );
-          })}
-        </ul>
+            <ul className="chips" aria-label="Form checks">
+              {FORM_CHECKS.map((c) => {
+                const off = snap.compensation[c.key];
+                return (
+                  <li key={c.key} className={off ? 'chip-warn' : ''}>
+                    {off ? c.warn : c.ok}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
 
         <div className="hud-controls">
           <label className="toggle">

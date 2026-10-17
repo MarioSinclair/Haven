@@ -1,5 +1,6 @@
 // Deterministic rules that decide what a clinician should look at. Gemini explains these flags
 // in the report; it never creates, removes or re-grades one. Shared by the server and the app.
+import { EXERCISES } from './protocol';
 import type { ExerciseId, Side } from './types';
 
 export type Severity = 'info' | 'warn' | 'urgent';
@@ -66,7 +67,6 @@ export const DEFAULT_THRESHOLDS = {
 
 export type Thresholds = typeof DEFAULT_THRESHOLDS;
 
-const EXERCISE_NAMES: Record<ExerciseId, string> = { side_raise: 'Side raise', scaption: 'Scaption raise', forward_raise: 'Forward raise' };
 const SEVERITY_ORDER: Record<Severity, number> = { urgent: 0, warn: 1, info: 2 };
 
 export function computeFlags(input: FlagInput, t: Thresholds = DEFAULT_THRESHOLDS): Flag[] {
@@ -87,7 +87,7 @@ export function computeFlags(input: FlagInput, t: Thresholds = DEFAULT_THRESHOLD
     const best = prior.reduce((a, b) => (b.bestPeakDeg > a.bestPeakDeg ? b : a));
     const dropPct = round1(((best.bestPeakDeg - latest.bestPeakDeg) / best.bestPeakDeg) * 100);
     if (dropPct < t.romDropPct) continue;
-    const name = EXERCISE_NAMES[latest.exerciseId];
+    const name = EXERCISES[latest.exerciseId].name;
     flags.push({
       rule: `rom_drop:${latest.exerciseId}:${latest.side}`,
       severity: 'warn',

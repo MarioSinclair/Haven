@@ -12,7 +12,8 @@
     "db:setup": "node --env-file-if-exists=.env --import tsx scripts/db-setup.ts",
     "test": "vitest run",
     "typecheck": "tsc",
-    "export-demo": "node --env-file-if-exists=.env --import tsx scripts/export-demo.ts"
+    "export-demo": "node --env-file-if-exists=.env --import tsx scripts/export-demo.ts",
+    "voice-pack": "node --env-file-if-exists=.env --import tsx scripts/voice-pack.ts"
   },
   "dependencies": {
     "@google/genai": "^2.27.0",

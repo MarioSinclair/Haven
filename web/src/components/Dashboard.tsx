@@ -7,7 +7,6 @@ import { BarChart, LineChart, SERIES_COLORS, shortDay, Sparkline, TraceChart } f
 import { SEVERITY } from './ReportView';
 
 const REFERENCE_NAME = { clinician_goal: 'PT goal', pre_op: 'pre-op', contralateral: 'other arm', general_goal: 'goal' } as const;
-const SHORT_NAME = { side_raise: 'Side raise', scaption: 'Scaption', forward_raise: 'Forward' } as const;
 
 interface Props {
   progress: Progress;
@@ -95,7 +94,7 @@ export function Dashboard({ progress, bandTrace, system, source, reportSlot }: P
         <div>
           <p className="ops-id">PATIENT {patient.id.slice(-4).toUpperCase()} · {patient.affectedSide.toUpperCase()} SIDE</p>
           <h1>{patient.displayName}</h1>
-          <p className="muted">{patient.surgeryType ?? 'Shoulder recovery'}</p>
+          <p className="muted">{patient.surgeryType ?? 'Post-mastectomy rehab'}</p>
         </div>
         <div className="ops-chips">
           {patient.surgeryDate && <span className="ops-chip">POST-OP DAY {days(patient.surgeryDate)}</span>}
@@ -118,7 +117,7 @@ export function Dashboard({ progress, bandTrace, system, source, reportSlot }: P
           return (
             <Kpi
               key={`${e.exerciseId}:${e.side}`}
-              label={`${SHORT_NAME[e.exerciseId]} · % ${REFERENCE_NAME[e.reference.source]}`}
+              label={`${EXERCISES[e.exerciseId].short} · % ${REFERENCE_NAME[e.reference.source]}`}
               value={pct}
               suffix="%"
               sub={`${Math.round(last.bestPeakDeg)}° now · ${Math.round(best)}° best`}

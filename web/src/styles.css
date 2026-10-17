@@ -542,6 +542,38 @@ input[type='checkbox'] {
   gap: 0.6rem 1rem;
 }
 
+/* Animated exercise demos: beside each exercise in a plan, and large during a session. */
+.demo {
+  display: block;
+  flex: none;
+}
+
+.demo-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.rx tr.excluded .demo {
+  opacity: 0.45;
+}
+
+.hud-demo {
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+}
+
+.hud-demo figcaption {
+  font-weight: 600;
+  text-align: center;
+}
+
 .band-status {
   display: grid;
   gap: 0.15rem;

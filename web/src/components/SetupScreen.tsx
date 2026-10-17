@@ -5,8 +5,9 @@ import { uploadDailyUse, type PatientProfile } from '../lib/api';
 import type { ProtocolByPhase } from '../lib/apiTypes';
 import { phaseLimit, planRows, type PlanRow } from '../lib/carePlan';
 import { daysBetween } from '../lib/flags';
-import { affectedSides, buildExercisePlan, buildRangeCheckPlan, DEFAULT_PROTOCOL, EXERCISES, type SessionPlan } from '../lib/protocol';
+import { affectedSides, buildExercisePlan, buildRangeCheckPlan, DEFAULT_PROTOCOL, EXERCISES, measuresRange, type SessionPlan } from '../lib/protocol';
 import { useReveal } from '../lib/motion';
+import { ExerciseDemo } from './ExerciseDemo';
 import type { ExerciseId, Phase, Side } from '../lib/types';
 
 interface Props {
@@ -42,7 +43,8 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
   const [voice, setVoice] = useState(true);
   const [bandMessage, setBandMessage] = useState<string | null>(null);
 
-  const included = rows.filter((r) => r.included);
+  // A range check measures the highest comfortable raise, so it only uses exercises that measure range.
+  const included = rows.filter((r) => r.included && (mode === 'exercise' || measuresRange(r.exerciseId)));
   const root = useRef<HTMLDivElement>(null);
   useReveal(root);
 
@@ -86,7 +88,7 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
     <div className="setup" ref={root}>
       <header className="setup-header" data-reveal>
         <div>
-          <p className="eyebrow">Shoulder recovery session</p>
+          <p className="eyebrow">Your rehab session</p>
           <h1>{patient.displayName}</h1>
           <p className="muted">
             {patient.affectedSide === 'both' ? 'Both sides' : `${patient.affectedSide === 'left' ? 'Left' : 'Right'} side`}
@@ -169,22 +171,25 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
               </tr>
             </thead>
             <tbody>
-              {(planLocked ? included : rows).map((r) => (
+              {(planLocked ? included : rows.filter((r) => mode === 'exercise' || measuresRange(r.exerciseId))).map((r) => (
                 <tr key={r.exerciseId} className={r.included ? '' : 'excluded'}>
                   <td>
-                    {planLocked ? (
-                      EXERCISES[r.exerciseId].name
-                    ) : (
-                      <label className="toggle">
-                        <input type="checkbox" checked={r.included} onChange={(e) => updateRow(r.exerciseId, { included: e.target.checked })} />
-                        {EXERCISES[r.exerciseId].name}
-                      </label>
-                    )}
+                    <span className="demo-cell">
+                      <ExerciseDemo exerciseId={r.exerciseId} side={affectedSides(patient.affectedSide)[0]} limitDeg={mode === 'exercise' ? r.ceilingDeg : null} size={56} />
+                      {planLocked ? (
+                        EXERCISES[r.exerciseId].name
+                      ) : (
+                        <label className="toggle">
+                          <input type="checkbox" checked={r.included} onChange={(e) => updateRow(r.exerciseId, { included: e.target.checked })} />
+                          {EXERCISES[r.exerciseId].name}
+                        </label>
+                      )}
+                    </span>
                   </td>
                   <td className="muted">{EXERCISES[r.exerciseId].view === 'front' ? 'Facing' : 'Side-on'}</td>
                   {mode === 'exercise' && planLocked && (
                     <>
-                      <td>{r.ceilingDeg === null ? 'None' : `${r.ceilingDeg}°`}</td>
+                      <td>{!measuresRange(r.exerciseId) ? '—' : r.ceilingDeg === null ? 'None' : `${r.ceilingDeg}°`}</td>
                       <td>{r.reps}</td>
                       <td>{r.sets}</td>
                     </>
@@ -192,15 +197,19 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
                   {mode === 'exercise' && !planLocked && (
                     <>
                       <td>
-                        <input
-                          type="number"
-                          min={30}
-                          max={180}
-                          placeholder="none"
-                          value={r.ceilingDeg ?? ''}
-                          onChange={(e) => updateRow(r.exerciseId, { ceilingDeg: e.target.value === '' ? null : Number(e.target.value) })}
-                          aria-label={`${EXERCISES[r.exerciseId].name} limit in degrees`}
-                        />
+                        {measuresRange(r.exerciseId) ? (
+                          <input
+                            type="number"
+                            min={30}
+                            max={180}
+                            placeholder="none"
+                            value={r.ceilingDeg ?? ''}
+                            onChange={(e) => updateRow(r.exerciseId, { ceilingDeg: e.target.value === '' ? null : Number(e.target.value) })}
+                            aria-label={`${EXERCISES[r.exerciseId].name} limit in degrees`}
+                          />
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
                       </td>
                       <td>
                         <input type="number" min={1} max={30} value={r.reps} onChange={(e) => updateRow(r.exerciseId, { reps: Math.max(1, Number(e.target.value)) })} aria-label="Reps" />

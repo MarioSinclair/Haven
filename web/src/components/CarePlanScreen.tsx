@@ -3,7 +3,8 @@ import { loadPatient, savePrescriptions, updatePatient } from '../lib/api';
 import type { PatientBundle } from '../lib/apiTypes';
 import { includedPrescriptions, LIMIT_RANGE, parsePatientInput, type PatientInput, parsePrescriptions, phaseLimit, planRows, REMINDER_RANGE, REPS_RANGE, SETS_RANGE, toPatientInput, type PlanRow } from '../lib/carePlan';
 import { useReveal } from '../lib/motion';
-import { DEFAULT_PROTOCOL, EXERCISES, type Prescription } from '../lib/protocol';
+import { ExerciseDemo } from './ExerciseDemo';
+import { affectedSides, DEFAULT_PROTOCOL, EXERCISES, measuresRange, type Prescription } from '../lib/protocol';
 import type { ExerciseId, Phase } from '../lib/types';
 import { PatientForm } from './PatientForm';
 import { patientMeta } from './PatientsScreen';
@@ -192,35 +193,47 @@ function PlanCard({ bundle, onChange }: { bundle: PatientBundle; onChange: (b: P
           <tbody>
             {rows.map((r) => {
               const name = EXERCISES[r.exerciseId].name;
+              const ranged = measuresRange(r.exerciseId);
               return (
                 <tr key={r.exerciseId} className={r.included ? '' : 'excluded'}>
                   <td>
-                    <label className="toggle">
-                      <input type="checkbox" checked={r.included} onChange={(e) => updateRow(r.exerciseId, { included: e.target.checked })} />
-                      {name}
-                    </label>
+                    <span className="demo-cell">
+                      <ExerciseDemo exerciseId={r.exerciseId} side={affectedSides(patient.affectedSide)[0]} limitDeg={r.ceilingDeg} size={52} />
+                      <label className="toggle">
+                        <input type="checkbox" checked={r.included} onChange={(e) => updateRow(r.exerciseId, { included: e.target.checked })} />
+                        {name}
+                      </label>
+                    </span>
                   </td>
                   <td>
-                    <input
-                      type="number"
-                      min={LIMIT_RANGE.min}
-                      max={LIMIT_RANGE.max}
-                      placeholder="none"
-                      value={r.ceilingDeg ?? ''}
-                      onChange={(e) => updateRow(r.exerciseId, { ceilingDeg: num(e.target.value) })}
-                      aria-label={`${name} limit in degrees`}
-                    />
+                    {ranged ? (
+                      <input
+                        type="number"
+                        min={LIMIT_RANGE.min}
+                        max={LIMIT_RANGE.max}
+                        placeholder="none"
+                        value={r.ceilingDeg ?? ''}
+                        onChange={(e) => updateRow(r.exerciseId, { ceilingDeg: num(e.target.value) })}
+                        aria-label={`${name} limit in degrees`}
+                      />
+                    ) : (
+                      <span className="muted" title="Counted, not measured: no limit or goal">
+                        —
+                      </span>
+                    )}
                   </td>
                   <td>
-                    <input
-                      type="number"
-                      min={LIMIT_RANGE.min}
-                      max={LIMIT_RANGE.max}
-                      placeholder="auto"
-                      value={r.goalDeg ?? ''}
-                      onChange={(e) => updateRow(r.exerciseId, { goalDeg: num(e.target.value) })}
-                      aria-label={`${name} goal in degrees`}
-                    />
+                    {ranged && (
+                      <input
+                        type="number"
+                        min={LIMIT_RANGE.min}
+                        max={LIMIT_RANGE.max}
+                        placeholder="auto"
+                        value={r.goalDeg ?? ''}
+                        onChange={(e) => updateRow(r.exerciseId, { goalDeg: num(e.target.value) })}
+                        aria-label={`${name} goal in degrees`}
+                      />
+                    )}
                   </td>
                   <td>
                     <input
@@ -250,7 +263,7 @@ function PlanCard({ bundle, onChange }: { bundle: PatientBundle; onChange: (b: P
       </div>
       <p className="fine">
         <strong>Limit:</strong> the coach warns as the arm nears it and beeps past it, and reps over it are flagged to you. Blank means as tolerated.{' '}
-        <strong>Goal:</strong> blank measures against the pre-op range, then the other arm, then a general goal.
+        <strong>Goal:</strong> blank measures against the pre-op range, then the other arm, then a general goal. Shoulder rolls are counted, so they have neither.
       </p>
       <div className="inline">
         <button className="primary" disabled={busy || (!dirty && !!stamp)} onClick={save}>
