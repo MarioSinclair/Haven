@@ -931,19 +931,21 @@ insert into daily_use (patient_id, bucket_start, bucket_minutes, max_elev_deg, r
   ('00000000-0000-4000-8000-000000000001', '2026-10-14 21:00:00 America/New_York', 60, 92.7, 1, 5.7);
 
 -- The band's 20 Hz stream for each exercise session, synthesized in the database so this file
--- stays small: smooth reps (one every ~3.6 s) up to that session's best peak, plus sensor noise.
+-- stays small: smooth reps (one every ~3.6 s) of varying height up to the session's best, plus sensor noise.
 insert into band_samples (patient_id, session_id, t, elevation_deg, rate_dps)
 select
   s.patient_id,
   s.id,
   gt.t,
-  round((6 + (best.peak - 10) * (1 - cos(2 * pi() * phase.x)) / 2 + 1.2 * sin(g.n * 1.7))::numeric, 2),
-  round((pi() / 3.6 * (best.peak - 10) * sin(2 * pi() * phase.x))::numeric, 1)
+  round((6 + (best.peak - 10) * height.k * (1 - cos(2 * pi() * phase.x)) / 2 + 1.2 * sin(g.n * 1.7))::numeric, 2),
+  round((pi() / 3.6 * (best.peak - 10) * height.k * sin(2 * pi() * phase.x))::numeric, 1)
 from sessions s
 join lateral (select max(r.peak_deg) as peak from reps r join sets st on st.id = r.set_id where st.session_id = s.id) best on true
 cross join lateral generate_series(0, (extract(epoch from s.ended_at - s.started_at) * 20)::int) as g(n)
 cross join lateral (select s.started_at + g.n * interval '50 milliseconds' as t) gt
 cross join lateral (select (g.n / 20.0 / 3.6) % 1 as x) phase
+-- Each rep (72 samples) reaches a slightly different height, like real reps do.
+cross join lateral (select 0.8 + 0.2 * (0.5 + 0.5 * sin(floor(g.n / 72.0) * 2.4)) as k) height
 where s.patient_id = '00000000-0000-4000-8000-000000000001' and s.kind = 'exercise';
 
 commit;

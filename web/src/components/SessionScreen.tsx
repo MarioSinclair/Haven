@@ -93,7 +93,7 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
   useGSAP(
     () => {
       if (reducedMotion()) return;
-      gsap.from('.modal', { autoAlpha: 0, y: 28, scale: 0.97, duration: 0.55, ease: EASE });
+      gsap.fromTo('.modal', { autoAlpha: 0, y: 28, scale: 0.97 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.55, ease: EASE });
     },
     { scope: stageRef, dependencies: [snap.stage] },
   );

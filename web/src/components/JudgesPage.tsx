@@ -1,17 +1,34 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { getDemo } from '../lib/api';
+import type { DemoBundle } from '../lib/apiTypes';
 import { APP_NAME } from '../lib/brand';
 import { EASE, gsap, reducedMotion, ScrollTrigger, SplitText, useGSAP } from '../lib/motion';
+import { AmbientBackground } from './AmbientBackground';
+import { Dashboard, Panel } from './Dashboard';
 import { Logo } from './Logo';
+import { ReportView } from './ReportView';
+import { SimulatedSession } from './SimulatedSession';
 
-// Judge-facing overview at /judges. Fill in the constants below before judging; empty links are hidden.
+// ---------------------------------------------------------------------------------------------
+// Fill these in before judging. Anything left empty is hidden on the live site.
+// ---------------------------------------------------------------------------------------------
+/** YouTube or Vimeo link, or a file in web/public/judges/ such as '/judges/demo.mp4'. */
+const DEMO_VIDEO = '';
 const LIVE_DOMAIN = ''; // e.g. 'example.com' once the GoDaddy domain points at the deployment
-const DEMO_VIDEO_URL = '';
 const REPO_URL = '';
 const TEAM: { name: string; role: string }[] = [
   { name: 'Teammate 1', role: 'Camera tracking and session engine' },
   { name: 'Teammate 2', role: 'Armband firmware and Bluetooth' },
   { name: 'Teammate 3', role: 'Server, Tiger Data, dashboard and Gemini report' },
 ];
+/** Screenshots and photos. Put files in web/public/judges/ and list them here. */
+const GALLERY: { src: string; caption: string }[] = [
+  { src: '/judges/console.png', caption: 'The PT console on the simulated demo patient: range, flags, band telemetry, daily use, pain and form.' },
+  { src: '/judges/setup.png', caption: 'Session setup: phase, per-exercise limits set by the PT, armband connection and comfort options.' },
+  { src: '/judges/judges-replay.png', caption: 'The replay further up this page: the real session engine on a scripted set.' },
+  // { src: '/judges/demo-1.jpg', caption: 'Live session with the armband on.' },
+];
+// ---------------------------------------------------------------------------------------------
 
 const FACTS = [
   'Video never leaves the laptop',
@@ -23,50 +40,52 @@ const FACTS = [
   'Every number in a report is checked',
 ];
 
-const TRY_STEPS = [
-  'Open the session page in Chrome on a laptop and allow the camera.',
-  'Leave Phase 1 selected (90° limit). No armband with you? Click "Simulate band".',
-  'Step back until your head, arms and hips are in frame, arms relaxed, and hold still while it calibrates.',
-  'Raise your left arm out to the side. Go past 90° and the line turns red, it beeps, and the voice tells you to lower. Shrug as you lift and it tells you to relax your shoulder.',
-  'Rate your pain after the set, then press "End session" to see the summary.',
-  'Open Progress to see two and a half weeks of a demo patient, the flags the rules raised, and the report Gemini writes from them.',
+const TLDR = [
+  { k: 'For', v: 'People recovering from breast cancer surgery, and the physical therapists who guide them.' },
+  { k: 'Problem', v: 'Shoulder exercises after a mastectomy are done alone at home. Between visits the PT can’t see how high the arm got, whether it hurt, or whether a limit was broken.' },
+  { k: 'Built', v: 'A camera coach that enforces the PT’s limits, an armband that tracks real-world arm use, and a console with reports written by Gemini from numbers our code computed.' },
+  { k: 'Stack', v: 'MediaPipe · XIAO ESP32-S3 + BNO085 · React · Express · Tiger Data · Auth0 · Gemini' },
 ];
 
-const DECIDED_BY_CODE = [
-  'Arm angle, rep counts and form checks',
-  'Range limits and the alerts when you pass them',
-  'Every flag: range loss, rising pain, reported symptoms, low daily use, limit breaks',
-  'Every number that appears in a report',
-];
-
-const WRITTEN_BY_GEMINI = [
-  'A plain-language summary for the patient',
-  'The narrative in the PT report, explaining flags the rules already raised',
-  'Questions the PT could ask at the next visit',
-];
+function embed(url: string): { kind: 'iframe' | 'video'; src: string } | null {
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([\w-]{11})/);
+  if (yt) return { kind: 'iframe', src: `https://www.youtube-nocookie.com/embed/${yt[1]}?rel=0` };
+  const vimeo = url.match(/vimeo\.com\/(\d+)/);
+  if (vimeo) return { kind: 'iframe', src: `https://player.vimeo.com/video/${vimeo[1]}` };
+  return url ? { kind: 'video', src: url } : null;
+}
 
 export function JudgesPage() {
   const root = useRef<HTMLDivElement>(null);
+  const [demo, setDemo] = useState<{ bundle: DemoBundle; source: 'live' | 'snapshot' } | null>(null);
+  const video = embed(DEMO_VIDEO);
+
+  useEffect(() => {
+    getDemo()
+      .then((bundle) => setDemo({ bundle, source: 'live' }))
+      .catch(async () => {
+        const snapshot = (await import('../fixtures/demo.json')).default as unknown as DemoBundle;
+        setDemo({ bundle: snapshot, source: 'snapshot' });
+      });
+  }, []);
 
   useGSAP(
     () => {
       if (reducedMotion()) {
-        gsap.set('[data-reveal]', { autoAlpha: 1 });
+        gsap.set('.j-reveal', { autoAlpha: 1 });
         return;
       }
       SplitText.create('.j-hero h1', {
         type: 'lines',
         mask: 'lines',
         autoSplit: true,
-        onSplit: (self) => gsap.from(self.lines, { yPercent: 105, duration: 1.1, ease: EASE, stagger: 0.09 }),
+        onSplit: (self) => gsap.fromTo(self.lines, { yPercent: 105 }, { yPercent: 0, duration: 1.1, ease: EASE, stagger: 0.09 }),
       });
-      gsap.fromTo('.j-hero [data-reveal]', { autoAlpha: 0, y: 16 }, { autoAlpha: 1, y: 0, duration: 0.9, ease: EASE, stagger: 0.08, delay: 0.35 });
-
+      gsap.fromTo('.j-hero .j-reveal', { autoAlpha: 0, y: 16 }, { autoAlpha: 1, y: 0, duration: 0.9, ease: EASE, stagger: 0.07, delay: 0.3 });
       const track = root.current?.querySelector('.marquee-track');
       if (track) gsap.to(track, { xPercent: -50, duration: 38, ease: 'none', repeat: -1 });
-
-      ScrollTrigger.batch('.judges-main [data-reveal]', {
-        start: 'top 88%',
+      ScrollTrigger.batch('.judges-main .j-reveal', {
+        start: 'top 90%',
         once: true,
         onEnter: (els) => gsap.fromTo(els, { autoAlpha: 0, y: 24 }, { autoAlpha: 1, y: 0, duration: 0.9, ease: EASE, stagger: 0.08, overwrite: true }),
       });
@@ -75,39 +94,52 @@ export function JudgesPage() {
   );
 
   return (
-    <div ref={root}>
+    <div ref={root} className="judges-page">
+      <AmbientBackground />
       <nav className="topbar">
         <a href="/" className="brand">
           <Logo />
           <span>{APP_NAME}</span>
         </a>
+        <div className="tabs">
+          <a href="#replay">Replay</a>
+          <a href="#console">Console</a>
+          <a href="#how">How it works</a>
+          <a href="#tracks">Prize tracks</a>
+        </div>
         <div className="topbar-right">
           <a className="button primary" href="/">
-            Try a session
+            Open the app
           </a>
         </div>
       </nav>
 
       <div className="judges">
         <header className="j-hero">
-          <p className="eyebrow" data-reveal>
-            For judges
-          </p>
+          <p className="eyebrow j-reveal">For judges · everything from this one link</p>
           <h1>
             Getting your <em>reach</em> back after breast cancer surgery.
           </h1>
-          <p className="j-lede" data-reveal>
-            A camera coach that enforces the care team's limits, an armband that tracks how the arm is really used at home, and a report a physical therapist can act on.
-          </p>
-          <div className="inline" data-reveal>
-            <a className="button primary" href="/">
-              Try a session
-            </a>
-            {DEMO_VIDEO_URL && (
-              <a className="button" href={DEMO_VIDEO_URL} target="_blank" rel="noreferrer">
-                Demo video
+          <div className="tldr j-reveal">
+            {TLDR.map((row) => (
+              <div key={row.k}>
+                <span className="kpi-label">{row.k}</span>
+                <p>{row.v}</p>
+              </div>
+            ))}
+          </div>
+          <div className="inline j-reveal">
+            {video && (
+              <a className="button primary" href="#video">
+                Watch the demo
               </a>
             )}
+            <a className={`button ${video ? '' : 'primary'}`} href="#replay">
+              See it work
+            </a>
+            <a className="button" href="/">
+              Try it yourself
+            </a>
             {REPO_URL && (
               <a className="button" href={REPO_URL} target="_blank" rel="noreferrer">
                 Source code
@@ -128,45 +160,96 @@ export function JudgesPage() {
         </div>
 
         <main className="judges-main">
-          <section className="j-section" data-reveal>
-            <h2>The problem</h2>
-            <p>
-              After a mastectomy or lymph node removal, shoulder exercises start within days, often with a temporary limit on how high the arm can go while surgical drains are in.
-              Patients do them alone at home. Their physical therapist sees them every week or two and has to rely on memory for what happened in between: how high they really got,
-              whether it hurt, whether a tight cord appeared under the arm.
-            </p>
+          {(video || import.meta.env.DEV) && (
+            <section className="j-section" id="video">
+              <SectionHead n="01" title="The demo" sub="Recorded end to end: a real session with the armband, then the PT's view." />
+              <div className="video-frame j-reveal">
+                {video?.kind === 'iframe' && (
+                  <iframe src={video.src} title="Demo video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture" allowFullScreen />
+                )}
+                {video?.kind === 'video' && <video src={video.src} controls playsInline preload="metadata" />}
+                {!video && <p className="video-empty">Set DEMO_VIDEO at the top of JudgesPage.tsx. This placeholder only shows in development.</p>}
+              </div>
+            </section>
+          )}
+
+          <section className="j-section" id="replay">
+            <SectionHead
+              n="02"
+              title="See it work, no camera needed"
+              sub="A scripted set played through the app's real pipeline: synthetic landmarks go into the same angle maths and session engine the app uses, with a simulated armband alongside. Every count, alert and cue below is the engine's own output."
+            />
+            <div className="j-reveal">
+              <SimulatedSession />
+            </div>
           </section>
 
-          <section className="j-section" data-reveal>
-            <h2>Try it in two minutes</h2>
-            <ol className="j-steps">
-              {TRY_STEPS.map((step) => (
-                <li key={step}>{step}</li>
-              ))}
-            </ol>
+          <section className="j-section" id="console">
+            <SectionHead
+              n="03"
+              title="What the physical therapist sees"
+              sub="The console from the app, on a simulated patient: two and a half weeks after a left mastectomy, with a setback (axillary cording) the rules catch on their own. Hover the charts."
+            />
+            <div className="console-frame j-reveal">
+              {demo ? (
+                <Dashboard
+                  progress={demo.bundle.progress}
+                  bandTrace={demo.bundle.bandTrace}
+                  system={demo.bundle.system}
+                  source={demo.source}
+                  reportSlot={
+                    <Panel id="09" title="Report" meta={demo.bundle.report ? `${demo.bundle.report.model} · checked against the data` : 'Gemini'} span={12} className="report">
+                      {demo.bundle.report ? (
+                        <ReportView report={demo.bundle.report} />
+                      ) : (
+                        <p className="muted">The Gemini report for this patient appears here once one has been generated in the app.</p>
+                      )}
+                    </Panel>
+                  }
+                />
+              ) : (
+                <p className="loading">Loading the console…</p>
+              )}
+            </div>
           </section>
 
-          <section className="j-section">
-            <h2 data-reveal>How it works</h2>
+          {GALLERY.length > 0 && (
+            <section className="j-section">
+              <SectionHead n="04" title="Screens and photos" />
+              <div className="gallery">
+                {GALLERY.map((g) => (
+                  <figure key={g.src} className="j-reveal">
+                    <a href={g.src} target="_blank" rel="noreferrer">
+                      <img src={g.src} alt={g.caption} loading="lazy" onError={(e) => ((e.currentTarget.closest('figure') as HTMLElement).style.display = 'none')} />
+                    </a>
+                    <figcaption>{g.caption}</figcaption>
+                  </figure>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section className="j-section" id="how">
+            <SectionHead n="05" title="How it works" />
             <div className="j-cards">
-              <article className="card" data-reveal>
-                <p className="eyebrow">01 · Camera coach</p>
+              <article className="card j-reveal">
+                <p className="eyebrow">Camera coach</p>
                 <h3>Measures every rep, live</h3>
                 <p className="muted">
                   MediaPipe Pose runs in the browser. We measure the upper arm against the trunk, count reps, enforce the limit with a beep and a voice cue, catch shrugging, leaning
                   and a bent elbow, and ask for a pain rating after every set.
                 </p>
               </article>
-              <article className="card" data-reveal>
-                <p className="eyebrow">02 · Armband</p>
+              <article className="card j-reveal">
+                <p className="eyebrow">Armband</p>
                 <h3>Fills the gaps</h3>
                 <p className="muted">
                   A XIAO ESP32-S3 with a BNO085 IMU streams the arm's angle over Bluetooth at 20 Hz. When the camera loses the arm, the band takes over. Between sessions it logs how
                   high and how often the arm is raised in daily life.
                 </p>
               </article>
-              <article className="card" data-reveal>
-                <p className="eyebrow">03 · Report for the PT</p>
+              <article className="card j-reveal">
+                <p className="eyebrow">PT console</p>
                 <h3>Turns data into a conversation</h3>
                 <p className="muted">
                   Fixed rules flag range loss, rising pain, reported symptoms and limit breaks. Gemini writes a plain-language summary for the patient and a one-page report the PT can
@@ -174,13 +257,8 @@ export function JudgesPage() {
                 </p>
               </article>
             </div>
-          </section>
-
-          <section className="j-section">
-            <h2 data-reveal>Architecture</h2>
             <div
-              className="j-flow"
-              data-reveal
+              className="j-flow j-reveal"
               role="img"
               aria-label="Armband and laptop camera feed the browser app, which sends angles to an API server; the server stores them in Tiger Data, runs the flag rules and asks Gemini for the report."
             >
@@ -210,95 +288,80 @@ export function JudgesPage() {
                 <span>patient summary · PT report</span>
               </div>
             </div>
-          </section>
-
-          <section className="j-section">
-            <h2 data-reveal>Code decides. Gemini explains.</h2>
-            <p className="muted" data-reveal>
-              Anything that affects safety is ordinary, testable code. The model only describes numbers it is handed, and the server rejects any number in its text that isn't in the
-              data.
-            </p>
             <div className="j-split">
-              <div className="card" data-reveal>
+              <div className="card j-reveal">
                 <h3>Decided by code</h3>
                 <ul>
-                  {DECIDED_BY_CODE.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
+                  <li>Arm angle, rep counts and form checks</li>
+                  <li>Range limits and the alerts when you pass them</li>
+                  <li>Every flag: range loss, rising pain, symptoms, low daily use, limit breaks</li>
+                  <li>Every number that appears in a report</li>
                 </ul>
               </div>
-              <div className="card" data-reveal>
+              <div className="card j-reveal">
                 <h3>Written by Gemini</h3>
                 <ul>
-                  {WRITTEN_BY_GEMINI.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
+                  <li>A plain-language summary for the patient</li>
+                  <li>The PT report's narrative, explaining flags the rules already raised</li>
+                  <li>Questions the PT could ask at the next visit</li>
                 </ul>
-                <p className="fine">Gemini never sees video, never sets a limit and never raises a flag. Requests are sent with storage off.</p>
+                <p className="fine">The server rejects any number in Gemini's text that isn't in the data. Gemini never sees video and never sets a limit or a flag.</p>
               </div>
             </div>
           </section>
 
-          <section className="j-section" data-reveal>
-            <h2>Privacy</h2>
-            <ul className="j-list">
-              <li>Video never leaves the laptop. Pose tracking runs on-device; only angles, counts and answers are stored.</li>
-              <li>Patients can hide the camera image and see only an outline of their arm, which matters after chest surgery.</li>
-              <li>Patients sign in with Auth0 and see only their own record; physical therapists see their patients.</li>
-              <li>Voice answers are optional. Chrome's speech recognition uses Google's servers, so tap buttons are the default.</li>
-            </ul>
-          </section>
-
-          <section className="j-section">
-            <h2 data-reveal>Prize tracks</h2>
+          <section className="j-section" id="tracks">
+            <SectionHead n="06" title="Prize tracks" />
             <div className="j-cards">
-              <article className="card" data-reveal>
+              <article className="card j-reveal">
                 <h3>Best use of Gemini API</h3>
                 <p className="muted">
-                  Gemini turns weeks of rep-level data and rule-based flags into two documents for two readers: a warm summary for the patient and a structured report for the PT, with
-                  questions for the next visit. Structured output keeps the format fixed; a number check keeps it honest.
+                  Two documents for two readers from the same data: a warm summary for the patient and a structured report for the PT, with questions for the next visit. Structured
+                  output fixes the format; a number check keeps it honest.
                 </p>
               </article>
-              <article className="card" data-reveal>
+              <article className="card j-reveal">
                 <h3>Best use of Tiger Data</h3>
                 <p className="muted">
-                  Reps, daily-use minutes and the raw 20 Hz band stream are hypertables. The dashboard reads continuous aggregates in real-time mode, so a session appears the moment it
-                  is saved, and the band stream moves to the columnstore after a day.
+                  Reps, daily-use minutes and the raw 20 Hz band stream are hypertables. The console reads real-time continuous aggregates, so a session shows up the moment it is saved,
+                  and older band data moves to the columnstore. Panel 04 above shows the live tables.
                 </p>
               </article>
-              <article className="card" data-reveal>
+              <article className="card j-reveal">
                 <h3>Best use of Auth0</h3>
                 <p className="muted">
                   Patients and physical therapists sign in through Auth0. The API verifies every token and maps each identity to a role: patients see only their own record, and only
                   clinicians can change a patient's limits.
                 </p>
               </article>
-              <article className="card" data-reveal>
+              <article className="card j-reveal">
                 <h3>Hardware</h3>
                 <p className="muted">
                   The band computes elevation on the board as the angle between the current gravity vector and the one captured with the arm hanging, so it works however it is
                   strapped on. The strap is wide and loose, because patients are told to avoid anything tight on the arm after lymph node removal.
                 </p>
               </article>
-              <article className="card" data-reveal>
+              <article className="card j-reveal">
                 <h3>Best domain from GoDaddy Registry</h3>
                 <p className="muted">{LIVE_DOMAIN ? `Live at ${LIVE_DOMAIN}.` : 'Deployed on our own domain.'}</p>
               </article>
             </div>
           </section>
 
-          <section className="j-section" data-reveal>
-            <h2>Honest notes</h2>
+          <section className="j-section j-reveal">
+            <SectionHead n="07" title="Privacy and honest notes" />
             <ul className="j-list">
-              <li>The patient on the Progress page is simulated: two and a half weeks of recovery with a setback, built so the flags have something real to find.</li>
+              <li>Video never leaves the laptop. Pose tracking runs on-device; only angles, counts and answers are stored.</li>
+              <li>Patients can hide the camera image and see only an outline of their arm, which matters after chest surgery.</li>
+              <li>The patient in the console is simulated, and the replay is scripted. Both run through the real code.</li>
               <li>The range limits in the demo are placeholders. Real limits come from the patient's surgeon or physical therapist.</li>
+              <li>Chrome's speech recognition uses Google's servers, so voice answers are optional and tap buttons are the default.</li>
               <li>This is a 36-hour prototype, not a medical device.</li>
-              <li>The camera-vs-band agreement on the session summary is measured live, not precomputed.</li>
             </ul>
           </section>
 
-          <section className="j-section" data-reveal>
-            <h2>Team</h2>
+          <section className="j-section j-reveal">
+            <SectionHead n="08" title="Team" />
             <ul className="j-team">
               {TEAM.map((m) => (
                 <li key={m.name}>
@@ -311,5 +374,17 @@ export function JudgesPage() {
         </main>
       </div>
     </div>
+  );
+}
+
+function SectionHead({ n, title, sub }: { n: string; title: string; sub?: string }) {
+  return (
+    <header className="j-head j-reveal">
+      <span className="j-num">{n}</span>
+      <div>
+        <h2>{title}</h2>
+        {sub && <p className="muted">{sub}</p>}
+      </div>
+    </header>
   );
 }

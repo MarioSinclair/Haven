@@ -105,3 +105,37 @@ export interface Progress {
   dailyUse: (UseDay & { maxElevDeg: number })[];
   flags: Flag[];
 }
+
+/** The band's raw stream from one session, downsampled for display. */
+export interface BandTrace {
+  sessionId: string;
+  startedAt: string;
+  /** Rows stored for this session at 20 Hz. */
+  rawSamples: number;
+  /** Display rate after downsampling. */
+  hz: number;
+  points: { s: number; deg: number }[];
+}
+
+export interface SystemStats {
+  engine: string;
+  timescale: boolean;
+  tables: {
+    name: string;
+    rows: number;
+    hypertable: boolean;
+    chunks: number | null;
+    compressedChunks: number | null;
+    beforeBytes: number | null;
+    afterBytes: number | null;
+  }[];
+  continuousAggregates: string[];
+}
+
+/** Everything the judges page shows, for the simulated demo patient. */
+export interface DemoBundle {
+  progress: Progress;
+  bandTrace: BandTrace | null;
+  system: SystemStats;
+  report: Report | null;
+}
