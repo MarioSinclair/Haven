@@ -99,6 +99,22 @@ api.put(
   }),
 );
 
+// Permanent: the schema cascades it to the patient's sessions, reps, band samples, flags and reports.
+api.delete(
+  '/patients/:id',
+  h(async (req) => {
+    assertClinician(req.user!);
+    const id = param(req);
+    // The judges page and every sign-in without a record of its own show the demo patient.
+    if (id.toLowerCase() === config.demoPatientId.toLowerCase()) throw new HttpError(403, "The demo patient can't be deleted.");
+    const deleted = await db().query('delete from patients where id = $1', [id]);
+    if (!deleted.rowCount) throw new HttpError(404, `No patient ${id}`);
+    // A patient signed in to this record falls back to the demo patient on their next request.
+    forgetUsers();
+    return { deleted: id };
+  }),
+);
+
 api.get(
   '/patients/:id',
   h(async (req) => {

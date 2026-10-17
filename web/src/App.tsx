@@ -210,6 +210,10 @@ export function App() {
                 onChange={show}
                 onBack={() => setClinicianScreen('patients')}
                 onProgress={() => setClinicianScreen('progress')}
+                onDeleted={() => {
+                  setCurrent(null);
+                  setClinicianScreen('patients');
+                }}
               />
             )}
             {clinicianScreen === 'progress' && current?.patient.id && (

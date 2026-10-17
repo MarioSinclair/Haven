@@ -217,6 +217,15 @@ button.link:hover:not(:disabled) {
   color: var(--pink-deep);
 }
 
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
 button.selected {
   background: var(--pink-soft);
   border-color: var(--ink);

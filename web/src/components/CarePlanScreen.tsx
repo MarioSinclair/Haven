@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { loadPatient, savePrescriptions, updatePatient } from '../lib/api';
-import type { PatientBundle } from '../lib/apiTypes';
+import { DEMO_PATIENT_ID, deletePatient, loadPatient, savePrescriptions, updatePatient } from '../lib/api';
+import type { PatientBundle, PatientRecord } from '../lib/apiTypes';
 import { includedPrescriptions, LIMIT_RANGE, parsePatientInput, type PatientInput, parsePrescriptions, phaseLimit, planRows, REMINDER_RANGE, REPS_RANGE, SETS_RANGE, toPatientInput, type PlanRow } from '../lib/carePlan';
 import { useReveal } from '../lib/motion';
 import { ExerciseDemo } from './ExerciseDemo';
@@ -14,10 +14,11 @@ interface Props {
   onChange: (bundle: PatientBundle) => void;
   onBack: () => void;
   onProgress: () => void;
+  onDeleted: () => void;
 }
 
 /** Where the PT decides what a patient does: their phase, and each phase's exercises and limits. */
-export function CarePlanScreen({ bundle, onChange, onBack, onProgress }: Props) {
+export function CarePlanScreen({ bundle, onChange, onBack, onProgress, onDeleted }: Props) {
   const { patient } = bundle;
   const root = useRef<HTMLDivElement>(null);
   useReveal(root);
@@ -53,7 +54,48 @@ export function CarePlanScreen({ bundle, onChange, onBack, onProgress }: Props) 
           }
         />
       </section>
+
+      {/* The judges page and unlinked sign-ins rely on the demo patient; the server refuses it too. */}
+      {patient.id !== DEMO_PATIENT_ID && <DeleteCard patient={patient} onDeleted={onDeleted} />}
     </div>
+  );
+}
+
+function DeleteCard({ patient, onDeleted }: { patient: PatientRecord; onDeleted: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const remove = async () => {
+    if (!window.confirm(`Delete ${patient.displayName} and all their sessions? This can't be undone.`)) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await deletePatient(patient.id);
+      onDeleted();
+    } catch (err) {
+      setMessage(`Could not delete: ${err instanceof Error ? err.message : String(err)}`);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card" data-reveal>
+      <h2>Delete patient</h2>
+      <p className="muted">
+        Permanently removes {patient.displayName}'s record with every session, rep, armband reading, flag and report. If they sign in again, they'll see the demo
+        patient.
+      </p>
+      <div className="inline">
+        <button className="danger" disabled={busy} onClick={remove}>
+          {busy ? 'Deleting…' : 'Delete patient'}
+        </button>
+        {message && (
+          <p className="fine" role="status">
+            {message}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
