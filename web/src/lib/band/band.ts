@@ -7,8 +7,14 @@ import {
   Cmd,
   encodeCommand,
   encodeDataPacket,
+  LineSplitter,
   parseDailyRecord,
   parseDataPacket,
+  parseUartLine,
+  UART_RX_UUID,
+  UART_SERVICE_UUID,
+  UART_TX_UUID,
+  UART_ZERO,
   type BandSample,
   type Command,
   type DailyRecord,
@@ -20,6 +26,8 @@ export interface BandSource {
   readonly kind: 'ble' | 'simulated';
   readonly status: BandStatus;
   readonly lastSample: BandSample | null;
+  /** Whether dumpDaily() can return anything; only firmware with the daily-use log keeps one. */
+  readonly hasDailyLog: boolean;
   connect(): Promise<void>;
   disconnect(): void;
   send(cmd: Command, arg?: number): Promise<void>;
@@ -56,7 +64,10 @@ abstract class BaseBand {
   }
 
   protected deliver(view: DataView) {
-    const sample = parseDataPacket(view);
+    this.deliverSample(parseDataPacket(view));
+  }
+
+  protected deliverSample(sample: BandSample) {
     this.lastSample = sample;
     const t = performance.now();
     for (const fn of this.sampleFns) fn(sample, t);
@@ -68,6 +79,12 @@ export class WebBluetoothBand extends BaseBand implements BandSource {
   private device: BluetoothDevice | null = null;
   private command: BluetoothRemoteGATTCharacteristic | null = null;
   private daily: BluetoothRemoteGATTCharacteristic | null = null;
+  /** Set when the band speaks the UART text protocol; commands go here instead. */
+  private uart: BluetoothRemoteGATTCharacteristic | null = null;
+
+  get hasDailyLog() {
+    return !!this.daily;
+  }
 
   static get supported(): boolean {
     return typeof navigator !== 'undefined' && 'bluetooth' in navigator;
@@ -76,28 +93,52 @@ export class WebBluetoothBand extends BaseBand implements BandSource {
   /** Must be called from a click handler: Chrome only opens the device picker on a user gesture. */
   async connect() {
     this.setStatus('connecting');
+    this.command = this.daily = this.uart = null;
     try {
       this.device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [BAND_SERVICE_UUID] }, { namePrefix: BAND_NAME_PREFIX }],
-        optionalServices: [BAND_SERVICE_UUID],
+        filters: [{ services: [UART_SERVICE_UUID] }, { services: [BAND_SERVICE_UUID] }, { namePrefix: BAND_NAME_PREFIX }],
+        optionalServices: [UART_SERVICE_UUID, BAND_SERVICE_UUID],
       });
       this.device.addEventListener('gattserverdisconnected', () => this.setStatus('disconnected'));
       const server = await this.device.gatt!.connect();
-      const service = await server.getPrimaryService(BAND_SERVICE_UUID);
-      const data = await service.getCharacteristic(BAND_DATA_UUID);
-      data.addEventListener('characteristicvaluechanged', (e) => {
-        const value = (e.target as BluetoothRemoteGATTCharacteristic).value;
-        if (value) this.deliver(value);
-      });
-      await data.startNotifications();
-      this.command = await service.getCharacteristic(BAND_COMMAND_UUID);
-      this.daily = await service.getCharacteristic(BAND_DAILY_UUID).catch(() => null);
-      await this.send(Cmd.SYNC_TIME);
+      const uart = await server.getPrimaryService(UART_SERVICE_UUID).catch(() => null);
+      if (uart) await this.connectUart(uart);
+      else await this.connectBinary(await server.getPrimaryService(BAND_SERVICE_UUID));
       this.setStatus('connected');
     } catch (err) {
       this.setStatus('disconnected');
       throw err;
     }
+  }
+
+  /** The band as built: text lines over the Nordic UART service. */
+  private async connectUart(service: BluetoothRemoteGATTService) {
+    const tx = await service.getCharacteristic(UART_TX_UUID);
+    const lines = new LineSplitter();
+    const decoder = new TextDecoder();
+    tx.addEventListener('characteristicvaluechanged', (e) => {
+      const value = (e.target as BluetoothRemoteGATTCharacteristic).value;
+      if (!value) return;
+      for (const line of lines.push(decoder.decode(value, { stream: true }))) {
+        const sample = parseUartLine(line);
+        if (sample) this.deliverSample(sample);
+      }
+    });
+    await tx.startNotifications();
+    this.uart = await service.getCharacteristic(UART_RX_UUID);
+  }
+
+  /** The binary contract at the top of protocol.ts. */
+  private async connectBinary(service: BluetoothRemoteGATTService) {
+    const data = await service.getCharacteristic(BAND_DATA_UUID);
+    data.addEventListener('characteristicvaluechanged', (e) => {
+      const value = (e.target as BluetoothRemoteGATTCharacteristic).value;
+      if (value) this.deliver(value);
+    });
+    await data.startNotifications();
+    this.command = await service.getCharacteristic(BAND_COMMAND_UUID);
+    this.daily = await service.getCharacteristic(BAND_DAILY_UUID).catch(() => null);
+    await this.send(Cmd.SYNC_TIME);
   }
 
   disconnect() {
@@ -106,6 +147,14 @@ export class WebBluetoothBand extends BaseBand implements BandSource {
   }
 
   async send(cmd: Command, arg?: number) {
+    if (this.uart) {
+      // The UART band only understands zeroing; it has no sessions, clock or log to command.
+      if (cmd !== Cmd.ZERO) return;
+      const bytes = new TextEncoder().encode(UART_ZERO);
+      if (this.uart.properties.write) await this.uart.writeValueWithResponse(bytes);
+      else await this.uart.writeValueWithoutResponse(bytes);
+      return;
+    }
     if (!this.command) throw new Error('Band not connected');
     await this.command.writeValueWithResponse(encodeCommand(cmd, arg));
   }
@@ -154,6 +203,7 @@ export class WebBluetoothBand extends BaseBand implements BandSource {
  */
 export class SimulatedBand extends BaseBand implements BandSource {
   readonly kind = 'simulated';
+  readonly hasDailyLog = false;
   private timer: ReturnType<typeof setInterval> | null = null;
   private deg = 0;
   private zeroOffset = 0;

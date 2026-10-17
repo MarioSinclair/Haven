@@ -1,4 +1,6 @@
 // Contract between the armband firmware and the web app. Change both sides together.
+// The band the team built uses the simpler UART text protocol at the bottom of this file;
+// the app speaks both and picks whichever service the band offers.
 //
 // GATT service BAND_SERVICE_UUID, advertised with the name prefix "RehabBand":
 //   DATA     notify  18-byte DataPacket at ~20 Hz while connected
@@ -119,4 +121,55 @@ export function encodeCommand(cmd: Command, arg?: number): Uint8Array<ArrayBuffe
 
 function clampInt16(n: number): number {
   return Math.max(-32768, Math.min(32767, n));
+}
+
+// The band as built speaks plain text over the Nordic UART service instead. Each line is
+//   first field, elevation°, rate °/s, gyro x, gyro y, gyro z, zeroed (1 or 0)
+// and writing "z" makes the arm's current position 0°. It sends no battery level or orientation
+// and keeps no daily-use log. The app reads the elevation, rate and zeroed fields.
+export const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+/** Band → app, notify. */
+export const UART_TX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+/** App → band, write. */
+export const UART_RX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+export const UART_ZERO = 'z';
+
+/** One line from the UART band, or null if it isn't a whole, well-formed line. */
+export function parseUartLine(line: string): BandSample | null {
+  const p = line.trim().split(',');
+  if (p.length < 7) return null;
+  const elevationDeg = Number(p[1]);
+  const rateDps = Number(p[2]);
+  if (p[1].trim() === '' || !Number.isFinite(elevationDeg) || !Number.isFinite(rateDps)) return null;
+  return {
+    boardMs: Number(p[0]) || 0,
+    elevationDeg,
+    rateDps,
+    quat: [1, 0, 0, 0], // not sent by this band
+    batteryPct: null,
+    calibrated: p[6].trim() === '1',
+    dailyMode: false,
+    sensorOk: true,
+  };
+}
+
+/**
+ * Turns UART notifications into whole lines. A notification usually carries one line, but a small
+ * Bluetooth packet size can split a line, and several lines can arrive together.
+ */
+export class LineSplitter {
+  private pending = '';
+
+  push(chunk: string): string[] {
+    const parts = (this.pending + chunk).split(/\r?\n/);
+    this.pending = parts.pop() ?? '';
+    // Firmware that doesn't end lines with a newline: a leftover that already parses is a whole line.
+    if (parseUartLine(this.pending)) {
+      parts.push(this.pending);
+      this.pending = '';
+    }
+    // Never let a stream of garbage pile up.
+    if (this.pending.length > 256) this.pending = '';
+    return parts.filter((line) => line.trim());
+  }
 }

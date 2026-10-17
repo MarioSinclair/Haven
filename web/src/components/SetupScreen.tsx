@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { WebBluetoothBand, type BandSource, type BandStatus } from '../lib/band/band';
-import { Cmd } from '../lib/band/protocol';
+import { Cmd, type BandSample } from '../lib/band/protocol';
 import { uploadDailyUse, type PatientProfile } from '../lib/api';
 import type { ProtocolByPhase } from '../lib/apiTypes';
 import { planRows, type PlanRow } from '../lib/carePlan';
@@ -231,6 +231,7 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
               ? 'Connecting…'
               : 'Optional. The band keeps tracking when the camera loses your arm, and logs daily arm use.'}
         </p>
+        {bandStatus === 'connected' && band && <BandReadout band={band} />}
         <div className="inline">
           {bandStatus !== 'connected' ? (
             <>
@@ -246,7 +247,7 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
               <button className="secondary" onClick={() => bandAction('Zeroing', async () => band!.send(Cmd.ZERO))}>
                 Zero (arm hanging)
               </button>
-              {band?.kind === 'ble' && (
+              {band?.hasDailyLog && (
                 <button className="secondary" onClick={syncDaily}>
                   Sync daily use
                 </button>
@@ -287,5 +288,26 @@ export function SetupScreen({ patient, protocol, loadError, online, planLocked, 
         Start {mode === 'exercise' ? 'session' : 'range check'}
       </button>
     </div>
+  );
+}
+
+/** The band's live angle, so you can see it working before a session. Redraws about 10 times a second. */
+function BandReadout({ band }: { band: BandSource }) {
+  const [sample, setSample] = useState<BandSample | null>(band.lastSample);
+  useEffect(() => {
+    let shownAt = 0;
+    return band.onSample((s, t) => {
+      if (t - shownAt < 100) return;
+      shownAt = t;
+      setSample(s);
+    });
+  }, [band]);
+
+  if (!sample) return <p className="fine">Waiting for the band…</p>;
+  return (
+    <p className="band-readout">
+      <strong>{Math.round(sample.elevationDeg)}°</strong>
+      <span className="fine">{sample.calibrated ? 'Arm angle from the band' : 'Not zeroed yet: let your arm hang relaxed, then press Zero.'}</span>
+    </p>
   );
 }
