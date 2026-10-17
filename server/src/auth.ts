@@ -60,8 +60,9 @@ async function resolveUser(req: Request): Promise<AppUser> {
   const row = (await db().query('select email, role from app_users where auth0_sub = $1', [sub])).rows[0];
   // Access tokens carry no email, so ask Auth0 who this is until we have a verified address.
   const email: string | null = row?.email ?? (await verifiedEmail(req));
-  // CLINICIAN_EMAILS is re-read on every sign-in, so adding someone later still takes effect.
-  const clinician = row?.role === 'clinician' || (!!email && config.clinicianEmails.includes(email.toLowerCase()));
+  // CLINICIAN_EMAILS alone decides who is a clinician, checked at sign-in: adding an address takes
+  // effect at once, removing one on the next server start. The stored role only mirrors it.
+  const clinician = !!email && config.clinicianEmails.includes(email.toLowerCase());
   // A patient lands on the record a clinician added for their email. Hackathon fallback:
   // anyone else sees the demo patient, read-only, so the public demo record stays clean.
   const record = !clinician && email ? (await db().query('select id from patients where lower(email) = lower($1)', [email])).rows[0] : undefined;

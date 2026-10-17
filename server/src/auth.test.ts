@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { forgetUsers, requireUser, type AppUser } from './auth';
+import { config } from './config';
 
 const DEMO = 'demo-patient';
 
@@ -78,6 +79,23 @@ describe('sign-in', () => {
     expect(await signIn('auth0|fake-pt')).toMatchObject({ role: 'patient', patientId: DEMO, readOnly: true });
     auth0Says({ email: 'ana@example.com', email_verified: false });
     expect(await signIn('auth0|fake-ana')).toMatchObject({ role: 'patient', patientId: DEMO, readOnly: true });
+  });
+
+  it('takes clinician access away when the address leaves CLINICIAN_EMAILS', async () => {
+    auth0Says({ email: 'pt@clinic.example', email_verified: true });
+    expect(await signIn('auth0|pt')).toMatchObject({ role: 'clinician' });
+
+    // The server restarts with the address removed; the database still says clinician.
+    const before = [...config.clinicianEmails];
+    config.clinicianEmails.length = 0;
+    forgetUsers();
+    try {
+      expect(tables.appUsers.get('auth0|pt')?.role).toBe('clinician');
+      expect(await signIn('auth0|pt')).toMatchObject({ role: 'patient', patientId: DEMO, readOnly: true });
+      expect(tables.appUsers.get('auth0|pt')?.role).toBe('patient');
+    } finally {
+      config.clinicianEmails.push(...before);
+    }
   });
 
   it('links the record once a clinician adds it and the user cache is cleared', async () => {
