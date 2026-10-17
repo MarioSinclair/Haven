@@ -5,6 +5,7 @@ import type { ExerciseId, Side } from './types';
 export type Severity = 'info' | 'warn' | 'urgent';
 
 export interface Flag {
+  /** Unique per flag: the rule's name, plus the exercise and arm for a rule that fires per arm (rom_drop:side_raise:left). */
   rule: string;
   severity: Severity;
   title: string;
@@ -38,7 +39,7 @@ export interface UseDay {
 }
 
 export interface FlagInput {
-  /** Last day the rules consider; usually yesterday. */
+  /** Last day the rules consider; usually today, so a session counts as soon as it's saved. */
   asOf: string;
   rom: RomDay[];
   sessions: SessionDay[];
@@ -88,7 +89,7 @@ export function computeFlags(input: FlagInput, t: Thresholds = DEFAULT_THRESHOLD
     if (dropPct < t.romDropPct) continue;
     const name = EXERCISE_NAMES[latest.exerciseId];
     flags.push({
-      rule: 'rom_drop',
+      rule: `rom_drop:${latest.exerciseId}:${latest.side}`,
       severity: 'warn',
       title: `${name} range down ${Math.round(dropPct)}%`,
       detail: `Best ${round0(latest.bestPeakDeg)}° on ${fmt(latest.day)}, down from ${round0(best.bestPeakDeg)}° on ${fmt(best.day)} (${latest.side} arm).`,
@@ -187,10 +188,12 @@ export function computeFlags(input: FlagInput, t: Thresholds = DEFAULT_THRESHOLD
   });
   if (dailyBreaks.length) {
     const raises = dailyBreaks.reduce((n, u) => n + u.raisesOver90, 0);
+    const limits = [...new Set(dailyBreaks.map((u) => input.limitByPhase[phaseOn(u.day)]!))].sort((a, b) => a - b);
+    const limitText = limits.length === 1 ? `${limits[0]}°` : `${limits[0]}–${limits[limits.length - 1]}°`;
     flags.push({
       rule: 'limit_exceeded_daily',
       severity: 'warn',
-      title: `Arm raised above 90° ${raises} ${raises === 1 ? 'time' : 'times'} at home while limited to 90°`,
+      title: `Arm raised above 90° ${raises} ${raises === 1 ? 'time' : 'times'} at home while limited to ${limitText}`,
       detail: `Logged by the armband on ${dailyBreaks.map((u) => fmt(u.day)).join(', ')}.`,
       evidence: { raises_over_90: raises, days: dailyBreaks.map((u) => u.day).join(', ') },
     });

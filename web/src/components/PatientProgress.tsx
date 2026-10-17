@@ -122,7 +122,7 @@ function ProgressBody({ progress, report }: { progress: Progress; report: Report
         <section className="card" data-reveal>
           <h2>Your summary</h2>
           <p>{report.patientSummary}</p>
-          <p className="fine">Written by Gemini from your numbers on {new Date(report.createdAt).toLocaleDateString()}, and checked against them.</p>
+          <p className="fine">Written by Gemini from your numbers on {new Date(report.createdAt).toLocaleDateString()}.</p>
         </section>
       )}
     </div>

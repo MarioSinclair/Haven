@@ -31,13 +31,19 @@ describe('computeFlags', () => {
 
   it('flags a range drop against the best of the previous week', () => {
     const flags = computeFlags({ ...steady, rom: [...steady.rom.slice(0, 9), rom(10, 100)] });
-    const drop = flags.find((f) => f.rule === 'rom_drop')!;
+    const drop = flags.find((f) => f.rule === 'rom_drop:side_raise:left')!;
     expect(drop.evidence).toMatchObject({ from_deg: 117, to_deg: 100, drop_pct: 14.5 });
     expect(drop.title).toBe('Side raise range down 15%');
   });
 
+  it('gives each arm its own range-drop flag', () => {
+    const right = steady.rom.map((r) => ({ ...r, side: 'right' as const }));
+    const dropped = (rows: RomDay[]) => [...rows.slice(0, 9), { ...rows[9], bestPeakDeg: 100 }];
+    expect(rules({ ...steady, rom: [...dropped(steady.rom), ...dropped(right)] })).toEqual(['rom_drop:side_raise:left', 'rom_drop:side_raise:right']);
+  });
+
   it('ignores a small dip', () => {
-    expect(rules({ ...steady, rom: [...steady.rom.slice(0, 9), rom(10, 112)] })).not.toContain('rom_drop');
+    expect(rules({ ...steady, rom: [...steady.rom.slice(0, 9), rom(10, 112)] })).toEqual([]);
   });
 
   it('flags rising pain and a high pain score', () => {
@@ -64,6 +70,9 @@ describe('computeFlags', () => {
     const dailyUse = steady.dailyUse.map((u) => (u.day === day(4) || u.day === day(8) ? { ...u, raisesOver90: 3 } : u));
     const f = computeFlags({ ...steady, sessions, dailyUse }).find((x) => x.rule === 'limit_exceeded_daily')!;
     expect(f.evidence).toMatchObject({ raises_over_90: 3, days: day(4) });
+    expect(f.title).toBe('Arm raised above 90° 3 times at home while limited to 90°');
+    const strict = computeFlags({ ...steady, sessions, dailyUse, limitByPhase: { 1: 60, 2: null, 3: null } }).find((x) => x.rule === 'limit_exceeded_daily')!;
+    expect(strict.title).toBe('Arm raised above 90° 3 times at home while limited to 60°');
   });
 
   it('flags reps past the limit in sessions', () => {
