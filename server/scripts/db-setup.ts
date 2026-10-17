@@ -6,12 +6,13 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { pgOptions } from '../src/config';
 
 const dbDir = join(dirname(fileURLToPath(import.meta.url)), '../../db');
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('Set DATABASE_URL in server/.env first');
 
-const client = new pg.Client({ connectionString: url });
+const client = new pg.Client(pgOptions(url));
 await client.connect();
 try {
   await client.query('create table if not exists schema_migrations (name text primary key, applied_at timestamptz not null default now())');

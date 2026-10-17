@@ -17,10 +17,11 @@ alter table band_samples set (
 );
 call add_columnstore_policy('band_samples', after => interval '1 day');
 
+-- Every primary-key column is a segmentby or orderby column, as the columnstore expects.
 alter table daily_use set (
   timescaledb.enable_columnstore = true,
   timescaledb.segmentby = 'patient_id',
-  timescaledb.orderby = 'bucket_start desc'
+  timescaledb.orderby = 'bucket_start desc, bucket_minutes'
 );
 call add_columnstore_policy('daily_use', after => interval '7 days');
 
