@@ -17,7 +17,7 @@ export const PLAN: SessionPlan = {
   blocks: [{ exerciseId: 'side_raise', side: 'left', kind: 'exercise', ceilingDeg: CEILING, reps: 5, sets: 1 }],
 };
 
-/** True arm angle for each rep. The camera reads about 6° more because the trunk line slopes. */
+/** True arm angle for each rep; measured against the trunk midline, the camera reads it as is. */
 const REPS = [
   { peak: 70, label: 'Rep 1' },
   { peak: 78, label: 'Rep 2' },
@@ -144,7 +144,7 @@ export function SimulatedSession() {
     const t = r.simT;
     const moment = scenario(t);
     const pose = poseAt(moment);
-    const metrics = computeMetrics(pose, 'left', W, H);
+    const metrics = computeMetrics(pose, 'left', 'front', W, H);
     const bandDeg = moment.theta + 2 + Math.sin(t * 9) * 0.6;
     r.engine.tick(t * 1000, metrics, { deg: bandDeg, t: t * 1000 });
     const snap = r.engine.getSnapshot();

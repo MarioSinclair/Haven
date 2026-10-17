@@ -10,7 +10,7 @@ describe('judges replay scenario', () => {
   engine.onEvent((e) => events.push(e));
   for (let t = 0; t < TOTAL; t += 1 / 30) {
     const m = scenario(t);
-    engine.tick(t * 1000, computeMetrics(poseAt(m), 'left', 1280, 720), { deg: m.theta + 2, t: t * 1000 });
+    engine.tick(t * 1000, computeMetrics(poseAt(m), 'left', 'front', 1280, 720), { deg: m.theta + 2, t: t * 1000 });
   }
   const reps = engine.result.sets[0]?.reps ?? [];
 
