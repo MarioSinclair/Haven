@@ -1,10 +1,10 @@
-# Rehab Coach
+# Haven
 
 Guided shoulder rehab for people recovering from breast cancer surgery. A laptop camera measures arm angles live, enforces the care team's range limits, catches compensation (shrugging, leaning, bent elbow), and coaches by voice. An ESP32 + IMU armband fills in when the camera loses the arm and logs how much the arm is used in daily life. Everything feeds a progress dashboard and a Gemini-written report for the patient's physical therapist.
 
 **Design rule:** safety logic (limits, alerts, flags) is deterministic code. Gemini only writes prose about numbers it is handed; it never decides a flag, and the server rejects any number in its text that isn't in the data.
 
-The app name is a placeholder: change `APP_NAME` in `web/src/lib/brand.ts`.
+The app name lives in one place: `APP_NAME` in `web/src/lib/brand.ts`.
 
 ## Layout
 
