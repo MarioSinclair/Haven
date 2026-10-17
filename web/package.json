@@ -13,8 +13,11 @@
     "postinstall": "node scripts/setup-assets.mjs"
   },
   "dependencies": {
+    "@auth0/auth0-react": "^2.28.2",
+    "@fontsource-variable/urbanist": "^5.3.0",
+    "@gsap/react": "^2.1.2",
     "@mediapipe/tasks-vision": "1.0.1",
-    "@supabase/supabase-js": "^2.117.0",
+    "gsap": "^3.15.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

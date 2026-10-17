@@ -1,21 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
-import { saveSession, supabase, type PatientProfile } from '../lib/db';
+import { saveSession, type PatientProfile } from '../lib/api';
+import type { BandTracePoint } from '../lib/apiTypes';
+import { useReveal } from '../lib/motion';
 import { EXERCISES } from '../lib/protocol';
 import type { SessionResult, SetResult } from '../lib/session/engine';
 
 type SaveState = { status: 'idle' | 'saving' | 'saved' | 'offline' } | { status: 'error'; message: string };
 
-export function SummaryScreen({ result, patient, onDone }: { result: SessionResult; patient: PatientProfile; onDone: () => void }) {
+export function SummaryScreen({ result, trace, patient, onDone }: { result: SessionResult; trace: BandTracePoint[]; patient: PatientProfile; onDone: () => void }) {
   const [save, setSave] = useState<SaveState>({ status: 'idle' });
+  const root = useRef<HTMLDivElement>(null);
+  useReveal(root);
 
   const doSave = async () => {
-    if (!supabase || !patient.id) {
+    if (!patient.id) {
       setSave({ status: 'offline' });
       return;
     }
     setSave({ status: 'saving' });
     try {
-      await saveSession(result, patient);
+      await saveSession(patient.id, result, trace);
       setSave({ status: 'saved' });
     } catch (err) {
       setSave({ status: 'error', message: err instanceof Error ? err.message : String(err) });
@@ -43,8 +47,8 @@ export function SummaryScreen({ result, patient, onDone }: { result: SessionResu
   const minutes = Math.max(1, Math.round((result.endedAt.getTime() - result.startedAt.getTime()) / 60000));
 
   return (
-    <div className="setup">
-      <header className="setup-header">
+    <div className="setup" ref={root}>
+      <header className="setup-header" data-reveal>
         <div>
           <p className="eyebrow">{result.kind === 'assessment' ? 'Range check complete' : 'Session complete'}</p>
           <h1>Nice work</h1>
@@ -68,7 +72,7 @@ export function SummaryScreen({ result, patient, onDone }: { result: SessionResu
         </p>
       )}
 
-      <section className="card">
+      <section className="card" data-reveal>
         <table className="rx">
           <thead>
             <tr>
@@ -91,7 +95,7 @@ export function SummaryScreen({ result, patient, onDone }: { result: SessionResu
       </section>
 
       {(result.symptoms || agreement) && (
-        <section className="card">
+        <section className="card" data-reveal>
           {result.symptoms && (
             <p>
               Heaviness or swelling: <strong>{result.symptoms.armHeaviness ? 'yes' : 'no'}</strong> · Cord under the arm:{' '}
@@ -107,7 +111,7 @@ export function SummaryScreen({ result, patient, onDone }: { result: SessionResu
         </section>
       )}
 
-      <div className="inline">
+      <div className="inline" data-reveal>
         <button className="primary" onClick={onDone}>
           Back to start
         </button>

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Generates supabase/seed.sql: one demo patient's recovery after a left mastectomy with axillary
+// Generates db/seed.sql: one demo patient's recovery after a left mastectomy with axillary
 // node dissection. Deterministic for a given end date. Re-run on demo day so the data ends yesterday:
 //
-//   node supabase/scripts/generate-seed.mjs              # last session = yesterday (New York time)
-//   node supabase/scripts/generate-seed.mjs --end 2026-10-20
+//   node db/scripts/generate-seed.mjs              # last session = yesterday (New York time)
+//   node db/scripts/generate-seed.mjs --end 2026-10-20
 //
 // The story, so the deterministic flag rules have something real to find:
 //   day -6      pre-op range check on both arms (the reference for progress)
@@ -94,7 +94,7 @@ function addSession({ dayIndex, kind, phase, blocks, painBase, bandOn }) {
   const id = uuid();
   const date = day(dayIndex);
   const start = between(17.5, 19.5) * 60;
-  let clock = start;
+  let clock = start; // minutes after midnight
   for (const b of blocks) {
     for (let setIndex = 0; setIndex < b.sets; setIndex++) {
       const setId = uuid();
@@ -106,8 +106,14 @@ function addSession({ dayIndex, kind, phase, blocks, painBase, bandOn }) {
         const peak = i === 3 && setIndex === 0 ? (b.topRep ?? b.best) : b.best - Math.abs(gauss(0, 3.5)) - setIndex * 1.5;
         const fromBand = bandOn && chance(0.05);
         const imuPeak = bandOn ? peak + gauss(-1.2, 2.2) : null;
+        clock += between(3, 4.5) / 60;
         rows.reps.push([
           setId,
+          PATIENT_ID,
+          b.exerciseId,
+          b.side,
+          kind,
+          ts(date, clock),
           i,
           r1(fromBand ? imuPeak : peak),
           Math.round(between(2600, 4200)),
@@ -118,7 +124,6 @@ function addSession({ dayIndex, kind, phase, blocks, painBase, bandOn }) {
           kind === 'exercise' && chance(0.05),
           imuPeak === null ? null : r1(imuPeak),
         ]);
-        clock += between(3, 4.5) / 60;
       }
       clock += 0.75; // pain prompt + rest
     }
@@ -219,9 +224,25 @@ ${insert('prescriptions', ['patient_id', 'phase', 'exercise_id', 'ceiling_deg', 
 ${insert('baselines', ['patient_id', 'exercise_id', 'side', 'source', 'peak_deg', 'measured_at'], rows.baselines)}
 ${insert('sessions', ['id', 'patient_id', 'kind', 'phase', 'started_at', 'ended_at'], rows.sessions)}
 ${insert('sets', ['id', 'session_id', 'exercise_id', 'side', 'set_index', 'ceiling_deg', 'reps_target', 'pain'], rows.sets)}
-${insert('reps', ['set_id', 'rep_index', 'peak_deg', 'duration_ms', 'source', 'over_ceiling', 'shoulder_hike', 'trunk_lean', 'elbow_bend', 'imu_peak_deg'], rows.reps)}
+${insert('reps', ['set_id', 'patient_id', 'exercise_id', 'side', 'kind', 'performed_at', 'rep_index', 'peak_deg', 'duration_ms', 'source', 'over_ceiling', 'shoulder_hike', 'trunk_lean', 'elbow_bend', 'imu_peak_deg'], rows.reps)}
 ${insert('symptom_logs', ['session_id', 'logged_at', 'arm_heaviness', 'armpit_cord', 'note'], rows.symptom_logs)}
 ${insert('daily_use', ['patient_id', 'bucket_start', 'bucket_minutes', 'max_elev_deg', 'raises_over_90', 'active_minutes'], rows.daily_use)}
+-- The band's 20 Hz stream for each exercise session, synthesized in the database so this file
+-- stays small: smooth reps (one every ~3.6 s) up to that session's best peak, plus sensor noise.
+insert into band_samples (patient_id, session_id, t, elevation_deg, rate_dps)
+select
+  s.patient_id,
+  s.id,
+  gt.t,
+  round((6 + (best.peak - 10) * (1 - cos(2 * pi() * phase.x)) / 2 + 1.2 * sin(g.n * 1.7))::numeric, 2),
+  round((pi() / 3.6 * (best.peak - 10) * sin(2 * pi() * phase.x))::numeric, 1)
+from sessions s
+join lateral (select max(r.peak_deg) as peak from reps r join sets st on st.id = r.set_id where st.session_id = s.id) best on true
+cross join lateral generate_series(0, (extract(epoch from s.ended_at - s.started_at) * 20)::int) as g(n)
+cross join lateral (select s.started_at + g.n * interval '50 milliseconds' as t) gt
+cross join lateral (select (g.n / 20.0 / 3.6) % 1 as x) phase
+where s.patient_id = ${q(PATIENT_ID)} and s.kind = 'exercise';
+
 commit;
 `;
 writeFileSync(out, sql);

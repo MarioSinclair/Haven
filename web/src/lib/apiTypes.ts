@@ -1,0 +1,107 @@
+// Shapes that cross the wire between the app and the server.
+import type { BaselineRow, Reference } from './baseline';
+import type { Flag, SessionDay, UseDay } from './flags';
+import type { Prescription } from './protocol';
+import type { SessionResult } from './session/engine';
+import type { AffectedSide, ExerciseId, Phase, Side } from './types';
+
+/** SessionResult after JSON: dates become ISO strings. */
+export type SessionResultJson = Omit<SessionResult, 'startedAt' | 'endedAt'> & { startedAt: string; endedAt: string };
+
+export interface BandTracePoint {
+  /** Unix ms. */
+  t: number;
+  deg: number;
+  rate: number;
+}
+
+export interface SessionPayload {
+  result: SessionResultJson;
+  bandTrace: BandTracePoint[];
+}
+
+export interface ClinicianReport {
+  overview: string;
+  flag_notes: { rule: string; note: string }[];
+  questions_for_visit: string[];
+}
+
+export interface Report {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  /** The deterministic numbers the model was given; the report template renders these directly. */
+  stats: ReportStats;
+  patientSummary: string;
+  clinician: ClinicianReport;
+  model: string;
+  unverifiedNumbers: string[];
+  createdAt: string;
+}
+
+export interface ReportStats {
+  patient: { name: string; affected_side: string; surgery: string | null; surgery_date: string | null; days_since_surgery: number | null; phase: number; phase_label: string };
+  period: { start: string; end: string; days: number };
+  sessions_completed: number;
+  exercises: {
+    exercise: string;
+    side: string;
+    reference_deg: number;
+    reference: string;
+    start_deg: number | null;
+    best_deg: number;
+    best_day: string;
+    latest_deg: number;
+    latest_day: string;
+    latest_pct_of_reference: number;
+    gained_since_start_deg: number | null;
+  }[];
+  pain: { day: string; max_pain: number }[];
+  symptoms_reported: { day: string; arm_heaviness: boolean; armpit_cord: boolean; note: string | null }[];
+  daily_use: { day: string; active_min: number; raises_over_90: number }[];
+  camera_band_gap_deg: number | null;
+  flags: { rule: string; severity: string; title: string; detail: string; evidence: Record<string, number | string | null> }[];
+}
+
+export interface PatientRecord {
+  id: string;
+  displayName: string;
+  affectedSide: AffectedSide;
+  surgeryType: string | null;
+  surgeryDate: string | null;
+  currentPhase: Phase;
+}
+
+export type ProtocolByPhase = Record<Phase, Prescription[]>;
+
+export interface PatientBundle {
+  patient: PatientRecord;
+  protocol: ProtocolByPhase;
+  baselines: BaselineRow[];
+}
+
+export interface Me {
+  sub: string;
+  email: string | null;
+  role: 'patient' | 'clinician';
+  patientId: string | null;
+}
+
+export interface ExerciseProgress {
+  exerciseId: ExerciseId;
+  side: Side;
+  reference: Reference;
+  /** First post-surgery best, for "gained X° since you started". */
+  startDeg: number | null;
+  days: { day: string; bestPeakDeg: number; reps: number; repsOverCeiling: number; repsWithCompensation: number; cameraBandGapDeg: number | null }[];
+}
+
+export interface Progress {
+  asOf: string;
+  patient: PatientRecord;
+  protocol: ProtocolByPhase;
+  exercises: ExerciseProgress[];
+  sessions: (SessionDay & { notes: string | null })[];
+  dailyUse: (UseDay & { maxElevDeg: number })[];
+  flags: Flag[];
+}
