@@ -1,11 +1,12 @@
 import { useGSAP } from '@gsap/react';
 import gsap from 'gsap';
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
+import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { SplitText } from 'gsap/SplitText';
 import type { RefObject } from 'react';
 
-gsap.registerPlugin(useGSAP, DrawSVGPlugin, ScrollTrigger, SplitText);
+gsap.registerPlugin(useGSAP, DrawSVGPlugin, MotionPathPlugin, ScrollTrigger, SplitText);
 
 // Use fromTo with explicit end values, not from(): when data loads twice (React StrictMode, a
 // refetch), a second from() reads the half-faded state as its end value and freezes there.

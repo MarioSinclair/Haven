@@ -45,7 +45,7 @@ npm run dev                   # http://localhost:5173 (and /judges)
 npm test
 ```
 
-Vite forwards `/api` to the server. Missing pieces switch off cleanly: no Auth0 settings means dev mode (everyone is the demo clinician), and no Gemini key means the report button explains what's missing.
+The app opens with the ribbon intro once per browser session (pull the ribbon down, or press Skip); `/welcome` always shows it, which is handy for recording the demo. Vite forwards `/api` to the server. Missing pieces switch off cleanly: no Auth0 settings means dev mode (everyone is the demo clinician), and no Gemini key means the report button explains what's missing.
 
 ## Services
 
