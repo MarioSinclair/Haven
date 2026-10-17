@@ -71,9 +71,9 @@ api.post(
     const p = patientInput(req.body);
     const id = await withEmailCheck(async () => {
       const r = await db().query(
-        `insert into patients (display_name, affected_side, surgery_type, surgery_date, current_phase, email, plan_note)
-         values ($1, $2, $3, $4, $5, $6, $7) returning id`,
-        [p.displayName, p.affectedSide, p.surgeryType, p.surgeryDate, p.currentPhase, p.email, p.planNote],
+        `insert into patients (display_name, affected_side, surgery_type, surgery_date, current_phase, email, plan_note, reminder_minutes)
+         values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+        [p.displayName, p.affectedSide, p.surgeryType, p.surgeryDate, p.currentPhase, p.email, p.planNote, p.reminderMinutes],
       );
       return r.rows[0].id as string;
     });
@@ -88,9 +88,10 @@ api.put(
     const p = patientInput(req.body);
     const updated = await withEmailCheck(() =>
       db().query(
-        `update patients set display_name = $2, affected_side = $3, surgery_type = $4, surgery_date = $5, current_phase = $6, email = $7, plan_note = $8
+        `update patients set display_name = $2, affected_side = $3, surgery_type = $4, surgery_date = $5, current_phase = $6, email = $7, plan_note = $8,
+                             reminder_minutes = $9
          where id = $1`,
-        [param(req), p.displayName, p.affectedSide, p.surgeryType, p.surgeryDate, p.currentPhase, p.email, p.planNote],
+        [param(req), p.displayName, p.affectedSide, p.surgeryType, p.surgeryDate, p.currentPhase, p.email, p.planNote, p.reminderMinutes],
       ),
     );
     if (!updated.rowCount) throw new HttpError(404, `No patient ${param(req)}`);

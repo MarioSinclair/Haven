@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { loadPatient, savePrescriptions, updatePatient } from '../lib/api';
 import type { PatientBundle } from '../lib/apiTypes';
-import { includedPrescriptions, LIMIT_RANGE, parsePrescriptions, planRows, REPS_RANGE, SETS_RANGE, toPatientInput, type PlanRow } from '../lib/carePlan';
+import { includedPrescriptions, LIMIT_RANGE, parsePatientInput, type PatientInput, parsePrescriptions, phaseLimit, planRows, REMINDER_RANGE, REPS_RANGE, SETS_RANGE, toPatientInput, type PlanRow } from '../lib/carePlan';
 import { useReveal } from '../lib/motion';
 import { DEFAULT_PROTOCOL, EXERCISES, type Prescription } from '../lib/protocol';
 import type { ExerciseId, Phase } from '../lib/types';
@@ -39,14 +39,17 @@ export function CarePlanScreen({ bundle, onChange, onBack, onProgress }: Props) 
 
       <PhaseCard bundle={bundle} onChange={onChange} />
       <PlanCard bundle={bundle} onChange={onChange} />
+      <BandCard bundle={bundle} onChange={onChange} />
 
       <section className="card" data-reveal>
         <h2>Patient details</h2>
-        {/* Phase comes from the saved record, so a phase change above is never undone here. */}
+        {/* Phase and reminder come from the saved record, so changes above are never undone here. */}
         <PatientForm
           initial={patient}
           submitLabel="Save details"
-          onSubmit={async (input) => onChange(await updatePatient(patient.id, { ...input, currentPhase: bundle.patient.currentPhase }))}
+          onSubmit={async (input) =>
+            onChange(await updatePatient(patient.id, { ...input, currentPhase: bundle.patient.currentPhase, reminderMinutes: bundle.patient.reminderMinutes }))
+          }
         />
       </section>
     </div>
@@ -259,6 +262,76 @@ function PlanCard({ bundle, onChange }: { bundle: PatientBundle; onChange: (b: P
           </p>
         )}
       </div>
+    </section>
+  );
+}
+
+/** What the patient's armband enforces on its own, between sessions. */
+function BandCard({ bundle, onChange }: { bundle: PatientBundle; onChange: (b: PatientBundle) => void }) {
+  const { patient, protocol } = bundle;
+  const limit = phaseLimit(protocol[patient.currentPhase]);
+  const [minutes, setMinutes] = useState(String(patient.reminderMinutes));
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const save = async () => {
+    setMessage(null);
+    let input: PatientInput;
+    try {
+      input = parsePatientInput({ ...toPatientInput(patient), reminderMinutes: minutes });
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    setBusy(true);
+    try {
+      onChange(await updatePatient(patient.id, input));
+      setMessage(input.reminderMinutes ? `Saved. The band reminds after ${input.reminderMinutes} minutes.` : 'Saved. The reminder is off.');
+    } catch (err) {
+      setMessage(`Could not save: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card" data-reveal>
+      <h2>Armband</h2>
+      <p className="muted">The patient's band gets these whenever it connects, and keeps them when it's switched off.</p>
+      <p>
+        Warns at <strong>{limit === null ? 'no limit' : `${limit}°`}</strong>
+        <span className="fine">
+          {' '}
+          · {limit === null ? 'every exercise in this phase is as tolerated' : `the lowest limit in phase ${patient.currentPhase}`}. It beeps faster from 10° below
+          and alarms above it, all day. Change it in the exercise plan.
+        </span>
+      </p>
+      <div className="inline">
+        <label className="toggle">
+          Remind after
+          <input
+            type="number"
+            min={REMINDER_RANGE.min}
+            max={REMINDER_RANGE.max}
+            value={minutes}
+            onChange={(e) => {
+              setMinutes(e.target.value);
+              setMessage(null);
+            }}
+            aria-label="Reminder minutes"
+          />
+          minutes without raising the arm above 60°
+        </label>
+        <button className="primary" disabled={busy || Number(minutes) === patient.reminderMinutes} onClick={save}>
+          {busy ? 'Saving…' : 'Save reminder'}
+        </button>
+      </div>
+      <p className="fine">0 turns the reminder off.</p>
+      {message && (
+        <p className="fine" role="status">
+          {message}
+        </p>
+      )}
     </section>
   );
 }

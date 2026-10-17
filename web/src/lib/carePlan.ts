@@ -14,6 +14,17 @@ export interface PatientInput {
   email: string | null;
   /** From the PT, shown to the patient before each session. */
   planNote: string | null;
+  /** The armband chirps after this many minutes without the arm going above 60°; 0 = off. */
+  reminderMinutes: number;
+}
+
+/**
+ * The one limit the armband warns at between sessions: the strictest in the phase, or null
+ * when every exercise is as tolerated.
+ */
+export function phaseLimit(prescriptions: Prescription[]): number | null {
+  const limits = prescriptions.map((p) => p.ceilingDeg).filter((d): d is number => d !== null);
+  return limits.length ? Math.min(...limits) : null;
 }
 
 /** Every exercise as an editable row, ticked when it's in this phase's plan. */
@@ -37,6 +48,7 @@ export function toPatientInput(p: PatientRecord): PatientInput {
     currentPhase: p.currentPhase,
     email: p.email,
     planNote: p.planNote,
+    reminderMinutes: p.reminderMinutes,
   };
 }
 
@@ -44,6 +56,7 @@ export function toPatientInput(p: PatientRecord): PatientInput {
 export const LIMIT_RANGE = { min: 30, max: 180 } as const;
 export const REPS_RANGE = { min: 1, max: 30 } as const;
 export const SETS_RANGE = { min: 1, max: 5 } as const;
+export const REMINDER_RANGE = { min: 0, max: 240 } as const;
 
 export function parsePatientInput(body: unknown): PatientInput {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -71,6 +84,7 @@ export function parsePatientInput(body: unknown): PatientInput {
     currentPhase,
     email,
     planNote: text(b.planNote, 'Note', 1000),
+    reminderMinutes: optionalInt(b.reminderMinutes, 'Reminder', REMINDER_RANGE) ?? 0,
   };
 }
 

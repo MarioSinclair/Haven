@@ -12,15 +12,26 @@ import {
   parseDataPacket,
   parseUartLine,
   UART_RX_UUID,
+  UART_BEEP,
   UART_SERVICE_UUID,
   UART_TX_UUID,
   UART_ZERO,
+  uartLimit,
+  uartReminder,
   type BandSample,
   type Command,
   type DailyRecord,
 } from './protocol';
 
 export type BandStatus = 'disconnected' | 'connecting' | 'connected';
+
+/** What the clinician decided, for the band to enforce on its own between sessions. */
+export interface BandSettings {
+  /** The strictest limit in the patient's current phase; null turns the band's warning off. */
+  limitDeg: number | null;
+  /** Minutes without raising the arm above 60° before the band chirps; 0 turns it off. */
+  reminderMinutes: number;
+}
 
 export interface BandSource {
   readonly kind: 'ble' | 'simulated';
@@ -31,6 +42,10 @@ export interface BandSource {
   connect(): Promise<void>;
   disconnect(): void;
   send(cmd: Command, arg?: number): Promise<void>;
+  /** Hands the band the clinician's limit and reminder. Bands without a buzzer ignore it. */
+  configure(settings: BandSettings): Promise<void>;
+  /** A short beep, so the patient knows the buzzer works. */
+  beep(): Promise<void>;
   /** Pulls the per-minute summaries logged while the patient wasn't in a session. */
   dumpDaily(): Promise<DailyRecord[]>;
   /** `receivedAt` is performance.now(), the same clock the camera loop uses. */
@@ -81,6 +96,8 @@ export class WebBluetoothBand extends BaseBand implements BandSource {
   private daily: BluetoothRemoteGATTCharacteristic | null = null;
   /** Set when the band speaks the UART text protocol; commands go here instead. */
   private uart: BluetoothRemoteGATTCharacteristic | null = null;
+  /** UART writes go one at a time; Chrome rejects a GATT write while another is in flight. */
+  private writes: Promise<void> = Promise.resolve();
 
   get hasDailyLog() {
     return !!this.daily;
@@ -148,15 +165,32 @@ export class WebBluetoothBand extends BaseBand implements BandSource {
 
   async send(cmd: Command, arg?: number) {
     if (this.uart) {
-      // The UART band only understands zeroing; it has no sessions, clock or log to command.
-      if (cmd !== Cmd.ZERO) return;
-      const bytes = new TextEncoder().encode(UART_ZERO);
-      if (this.uart.properties.write) await this.uart.writeValueWithResponse(bytes);
-      else await this.uart.writeValueWithoutResponse(bytes);
+      // Of these commands the UART band only has zeroing; it has no sessions, clock or log.
+      if (cmd === Cmd.ZERO) await this.writeText(UART_ZERO);
       return;
     }
     if (!this.command) throw new Error('Band not connected');
     await this.command.writeValueWithResponse(encodeCommand(cmd, arg));
+  }
+
+  async configure({ limitDeg, reminderMinutes }: BandSettings) {
+    if (!this.uart) return;
+    await this.writeText(uartLimit(limitDeg));
+    await this.writeText(uartReminder(reminderMinutes));
+  }
+
+  async beep() {
+    if (this.uart) await this.writeText(UART_BEEP);
+  }
+
+  private writeText(text: string): Promise<void> {
+    const rx = this.uart;
+    if (!rx) return Promise.reject(new Error('Band not connected'));
+    const bytes = new TextEncoder().encode(text);
+    const write = () => (rx.properties.write ? rx.writeValueWithResponse(bytes) : rx.writeValueWithoutResponse(bytes));
+    const done = this.writes.then(write, write);
+    this.writes = done.catch(() => undefined);
+    return done;
   }
 
   async dumpDaily(): Promise<DailyRecord[]> {
@@ -207,6 +241,7 @@ export class SimulatedBand extends BaseBand implements BandSource {
   private timer: ReturnType<typeof setInterval> | null = null;
   private deg = 0;
   private zeroOffset = 0;
+  private limit: number | null = null;
   private startMs = performance.now();
 
   constructor(private truth: () => number | null) {
@@ -228,6 +263,13 @@ export class SimulatedBand extends BaseBand implements BandSource {
     if (cmd === Cmd.ZERO) this.zeroOffset = this.deg;
   }
 
+  /** Reports the limit back the way the real band does, so the app's confirmation shows. */
+  async configure({ limitDeg }: BandSettings) {
+    this.limit = limitDeg;
+  }
+
+  async beep() {}
+
   async dumpDaily(): Promise<DailyRecord[]> {
     return [];
   }
@@ -237,7 +279,7 @@ export class SimulatedBand extends BaseBand implements BandSource {
     const prev = this.deg;
     if (target !== null) this.deg += 0.35 * (target - 6 - this.deg);
     const noise = (Math.random() - 0.5) * 1.2;
-    this.deliver(
+    const sample = parseDataPacket(
       new DataView(
         encodeDataPacket({
           boardMs: Math.round(performance.now() - this.startMs),
@@ -251,5 +293,6 @@ export class SimulatedBand extends BaseBand implements BandSource {
         }),
       ),
     );
+    this.deliverSample({ ...sample, limitDeg: this.limit, overLimit: this.limit !== null && sample.elevationDeg > this.limit });
   }
 }

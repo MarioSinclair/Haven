@@ -20,6 +20,13 @@ describe('UART band lines', () => {
     expect(parseUartLine('1200,42.5,0,0,0,0,0')?.calibrated).toBe(false);
   });
 
+  it('reads the limit the band reports, and whether the arm is over it', () => {
+    expect(parseUartLine('5000,95.5,3,0,0,0,1,90,1')).toMatchObject({ limitDeg: 90, overLimit: true });
+    expect(parseUartLine('5000,40,3,0,0,0,1,0,0')).toMatchObject({ limitDeg: null, overLimit: false });
+    // Older firmware has no limit fields at all.
+    expect(parseUartLine('5000,40,3,0,0,0,1')?.limitDeg).toBeUndefined();
+  });
+
   it('rejects partial or garbled lines', () => {
     expect(parseUartLine('1200,42.5,-10.25,0.12')).toBeNull();
     expect(parseUartLine('1200,,0,0,0,0,1')).toBeNull();
@@ -35,6 +42,13 @@ describe('UART band lines', () => {
     expect(lines.push(',0,0,1\n')).toEqual(['2,20,0,0,0,0,1']);
     // Several lines in one notification.
     expect(lines.push('3,30,0,0,0,0,1\n4,40,0,0,0,0,0\n')).toEqual(['3,30,0,0,0,0,1', '4,40,0,0,0,0,0']);
+  });
+
+  it('keeps every field when a newline-terminated line splits after the zeroed flag', () => {
+    const lines = new LineSplitter();
+    expect(lines.push('1,10,0,0,0,0,1,90,0\n')).toEqual(['1,10,0,0,0,0,1,90,0']);
+    expect(lines.push('2,95,0,0,0,0,1')).toEqual([]);
+    expect(lines.push(',90,1\n')).toEqual(['2,95,0,0,0,0,1,90,1']);
   });
 });
 
@@ -108,6 +122,18 @@ describe('Bluetooth band connection', () => {
     await band.send(Cmd.ZERO);
     await band.send(Cmd.START_SESSION); // nothing to send: this band has no sessions
     expect(rx.writes.map((w) => new TextDecoder().decode(w))).toEqual(['z']);
+  });
+
+  it("sends the PT's limit and reminder, and test beeps, one write at a time", async () => {
+    const tx = new FakeCharacteristic();
+    const rx = new FakeCharacteristic();
+    stubBluetooth({ [UART_SERVICE_UUID]: { [UART_TX_UUID]: tx, [UART_RX_UUID]: rx } });
+    const band = new WebBluetoothBand();
+    await band.connect();
+
+    await Promise.all([band.configure({ limitDeg: 90, reminderMinutes: 30 }), band.beep()]);
+    await band.configure({ limitDeg: null, reminderMinutes: 0 });
+    expect(rx.writes.map((w) => new TextDecoder().decode(w))).toEqual(['c90', 'b', 'r30', 'c0', 'r0']);
   });
 
   it('still speaks the binary contract to firmware that offers it', async () => {
