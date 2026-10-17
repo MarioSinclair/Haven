@@ -52,6 +52,13 @@ RLS policies are wide open so the app works without login. Don't put real patien
 | 10–14 | Drains out, no limit. Range climbs to 126° |
 | 15–17 | Axillary cording reported. Side-raise range drops ~17%, pain 2 → 6–7, daily arm use falls ~40%, shrugging rises |
 
+## Hardware
+
+- XIAO ESP32-S3: the brain. It reads the sensor, sends data over BLE to the laptop, and charges the battery.
+- BNO085: measures upper-arm orientation. You'll use the Game Rotation Vector report.
+- 600 mAh LiPo plus a JST pigtail: detachable power.
+- Armband: holds everything aligned with the upper arm.
+
 ## Band protocol (firmware)
 
 Full contract in [web/src/lib/band/protocol.ts](web/src/lib/band/protocol.ts). In short:
