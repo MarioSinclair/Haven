@@ -2,13 +2,14 @@
 // as one bundled Node function at /api. Vercel runs this after building the web app (vercel.json);
 // to try it locally:
 //   (cd web && npm run build) && node server/scripts/vercel-build.mjs
+// The output goes in .vercel/ under the folder given (Vercel's Root Directory), else the repo root.
 import { build } from 'esbuild';
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
-const out = join(root, '.vercel/output');
+const out = join(process.argv[2] ?? root, '.vercel/output');
 const fn = join(out, 'functions/api.func');
 
 rmSync(out, { recursive: true, force: true });
