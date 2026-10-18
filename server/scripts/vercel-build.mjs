@@ -1,7 +1,7 @@
 // Builds the app for Vercel in its Build Output format: the web app as static files and the API
 // as one bundled Node function at /api. Vercel runs this after building the web app (vercel.json);
 // to try it locally:
-//   npm --prefix web run build && node server/scripts/vercel-build.mjs
+//   (cd web && npm run build) && node server/scripts/vercel-build.mjs
 import { build } from 'esbuild';
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
