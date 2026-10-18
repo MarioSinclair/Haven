@@ -201,8 +201,8 @@ export function App() {
           {clinician && side === 'patient' && current && <span className="pill topbar-patient">Viewing as {current.patient.displayName}</span>}
           {me?.readOnly && <span className="pill topbar-patient">Demo patient: sessions aren't saved</span>}
           {auth ? (
-            <button className="link" onClick={auth.logout}>
-              Sign out<span className="signout-email">{auth.email ? ` ${auth.email}` : ''}</span>
+            <button className="signout" onClick={auth.logout}>
+              Sign out
             </button>
           ) : (
             (online || clinician) && <span className="fine">Dev mode</span>

@@ -305,7 +305,7 @@ function PlanCard({ bundle, onChange }: { bundle: PatientBundle; onChange: (b: P
       </div>
       <p className="fine">
         <strong>Limit:</strong> the coach warns as the arm nears it and beeps past it, and reps over it are flagged to you. Blank means as tolerated.{' '}
-        <strong>Goal:</strong> blank measures against the pre-op range, then the other arm, then a general goal. Shoulder rolls are counted, so they have neither.
+        <strong>Goal:</strong> blank measures against the pre-op range, then the other arm, then a general goal. Shoulder rolls and elbow winging are counted, so they have neither.
       </p>
       <div className="inline">
         <button className="primary" disabled={busy || (!dirty && !!stamp)} onClick={save}>

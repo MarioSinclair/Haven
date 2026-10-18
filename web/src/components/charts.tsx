@@ -211,9 +211,11 @@ export function LineChart({
               // Phases can repeat (a patient moved back a phase), so the index is part of the key.
               <g key={`${p.label}-${i}`} className={`phase phase-${i % 2}`}>
                 <rect x={x0} width={Math.max(0, x1 - x0)} y={M.top} height={height - M.top - M.bottom} />
-                <text x={x0 + 6} y={M.top + 12}>
-                  {p.label}
-                </text>
+                {x1 - x0 >= p.label.length * 7 + 12 && (
+                  <text x={x0 + 6} y={M.top + 12}>
+                    {p.label}
+                  </text>
+                )}
               </g>
             );
           })}

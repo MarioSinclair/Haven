@@ -126,6 +126,19 @@ const ELBOW_MIN_DEG = 145;
 const ROLL_START_PCT = 6;
 const ROLL_END_PCT = 3;
 const ROLL_MIN_PCT = 8;
+// Elbow winging: how close the elbows come and how wide they open varies a lot between patients
+// and with recovery, so a rep is the elbow gap (elbow to elbow, in shoulder widths) swinging out
+// and back by at least WING_SWING, not set gaps. Tune against recordings.
+const WING_SWING = 0.35;
+/** Elbows this close count as together straight away, without first seeing them come in. */
+const WING_TOGETHER = 1.1;
+/** Hands behind the head lift the elbows clear of resting; only dropping back to rest starts over. */
+const WING_ARMS_UP_DEG = 45;
+const WING_MESSAGE = {
+  waiting: 'Clasp your hands behind your head, elbows together in front.',
+  closed: 'Now open your elbows out wide.',
+  open: 'And bring your elbows back together.',
+} as const;
 
 const NO_COMPENSATION: CompensationFlags = { shoulderHike: false, trunkLean: false, elbowBend: false };
 
@@ -142,6 +155,12 @@ export class SessionEngine {
   private rest: RestPose | null = null;
   private filter = new OneEuroFilter();
   private liftFilter = new OneEuroFilter();
+  private spreadFilter = new OneEuroFilter();
+  /** Elbow winging: waiting for hands behind the head and elbows together, then together or open. */
+  private wing: 'waiting' | 'closed' | 'open' = 'waiting';
+  /** The narrowest elbow gap since they came together, or the widest while waiting or open. */
+  private wingExtreme = 0;
+  private wingOpenedAt = 0;
   private reps: RepCounter | null = null;
   private ceiling: CeilingMonitor | null = null;
   private hike = new Debounce(200, 400);
@@ -347,6 +366,9 @@ export class SessionEngine {
         ? new RepCounter({ restDeg: 0, startAbove: ROLL_START_PCT, endBelow: ROLL_END_PCT, minRise: ROLL_MIN_PCT })
         : new RepCounter({ restDeg: this.rest!.cameraDeg });
     this.liftFilter.reset();
+    this.spreadFilter.reset();
+    this.wing = 'waiting';
+    this.wingExtreme = 0;
     this.ceiling = new CeilingMonitor(block.ceilingDeg);
     this.hike.reset();
     this.lean.reset();
@@ -371,7 +393,9 @@ export class SessionEngine {
   }
 
   private tickActive(t: number, cam: PoseMetrics | null, imu: ImuReading | null) {
-    if (EXERCISES[this.block!.exerciseId].measure === 'roll') return this.tickRoll(t, cam);
+    const measure = EXERCISES[this.block!.exerciseId].measure;
+    if (measure === 'roll') return this.tickRoll(t, cam);
+    if (measure === 'wing') return this.tickWing(t, cam);
     const rest = this.rest!;
     const reps = this.reps!;
     const ceiling = this.ceiling!;
@@ -427,17 +451,61 @@ export class SessionEngine {
    */
   private tickRoll(t: number, cam: PoseMetrics | null) {
     const rest = this.rest!;
-    if (!cam || cam.confidence < MIN_CAMERA_CONFIDENCE) {
-      this.lostSince ??= t;
-      this.message = "Can't see your shoulders. Step back or improve the lighting.";
-      if (t - this.lostSince > LOST_CUE_AFTER_MS) this.cue({ key: 'lost', text: LINES.lost, cooldownMs: 8000 });
-      return;
-    }
-    this.lostSince = null;
+    if (!this.cameraSees(t, cam)) return;
     const lift = this.liftFilter.filter(Math.max(0, (1 - cam.earLift / rest.earLift) * 100), t);
     const rep = this.reps!.update(lift, t);
     this.message = EXERCISES[this.block!.exerciseId].brief;
     if (rep) this.completeRep(this.lastCamDeg ?? rest.cameraDeg, rep.endT - rep.startT);
+  }
+
+  /**
+   * Elbow winging: hands behind the head, elbows together in front, out wide and back together.
+   * A rep starts from together with the arms up, so lifting the hands into place doesn't count.
+   * Camera only, with no limit or form checks.
+   */
+  private tickWing(t: number, cam: PoseMetrics | null) {
+    if (!this.cameraSees(t, cam)) return;
+    const spread = this.spreadFilter.filter(cam.elbowSpread, t);
+    const deg = this.lastCamDeg ?? 0;
+    if (deg < REST_POSE_MAX_DEG) {
+      this.wing = 'waiting';
+      this.wingExtreme = spread;
+    } else if (this.wing === 'waiting') {
+      // Lifting the hands into place often swings the elbows wide first; they count as together
+      // once they're close, or once they've come in a full swing from the widest.
+      this.wingExtreme = Math.max(this.wingExtreme, spread);
+      if (deg >= WING_ARMS_UP_DEG && (spread <= WING_TOGETHER || spread <= this.wingExtreme - WING_SWING)) {
+        this.wing = 'closed';
+        this.wingExtreme = spread;
+      }
+    } else if (this.wing === 'closed') {
+      this.wingExtreme = Math.min(this.wingExtreme, spread);
+      if (spread >= this.wingExtreme + WING_SWING) {
+        this.wing = 'open';
+        this.wingExtreme = spread;
+        this.wingOpenedAt = t;
+      }
+    } else {
+      this.wingExtreme = Math.max(this.wingExtreme, spread);
+      if (spread <= this.wingExtreme - WING_SWING) {
+        this.wing = 'closed';
+        this.wingExtreme = spread;
+        this.completeRep(deg, t - this.wingOpenedAt);
+      }
+    }
+    if (this.stage === 'active') this.message = WING_MESSAGE[this.wing];
+  }
+
+  /** Rolls and winging go by the camera alone; while it can't see the patient, nothing counts. */
+  private cameraSees(t: number, cam: PoseMetrics | null): cam is PoseMetrics {
+    if (cam && cam.confidence >= MIN_CAMERA_CONFIDENCE) {
+      this.lostSince = null;
+      return true;
+    }
+    this.lostSince ??= t;
+    this.message = "Can't see you. Step back or improve the lighting.";
+    if (t - this.lostSince > LOST_CUE_AFTER_MS) this.cue({ key: 'lost', text: LINES.lost, cooldownMs: 8000 });
+    return false;
   }
 
   private updateCompensation(t: number, cam: PoseMetrics | null, fused: FusedAngle): CompensationFlags {
@@ -447,7 +515,7 @@ export class SessionEngine {
     const now: CompensationFlags = {
       shoulderHike: this.hike.update(watch && cam!.earLift < rest.earLift * (1 - HIKE_EAR_GAP_DROP), t),
       trunkLean: this.lean.update(watch && Math.abs(cam!.trunkLeanDeg - rest.trunkLeanDeg) > LEAN_DEG, t),
-      elbowBend: this.elbow.update(watch && cam!.elbowDeg < ELBOW_MIN_DEG, t),
+      elbowBend: this.elbow.update(watch && !EXERCISES[this.block!.exerciseId].elbowMayBend && cam!.elbowDeg < ELBOW_MIN_DEG, t),
     };
     if (now.shoulderHike && !before.shoulderHike) this.cue({ key: 'hike', text: LINES.hike, cooldownMs: 6000 });
     if (now.trunkLean && !before.trunkLean) this.cue({ key: 'lean', text: LINES.lean, cooldownMs: 6000 });

@@ -31,7 +31,7 @@ export function ProgressScreen({ patientId, geminiEnabled, onBack }: { patientId
       </div>
     );
   }
-  if (!data) return <div className="loading">Loading console…</div>;
+  if (!data) return <div className="loading">Loading progress…</div>;
 
   return (
     <>
@@ -70,7 +70,7 @@ function ReportPanel({ patientId, geminiEnabled, report, onReport }: { patientId
   };
 
   return (
-    <Panel id="09" title="Report" meta={report ? `${report.model} · checked against the data` : 'Gemini'} span={12} className="report">
+    <Panel title="Report" meta={report ? `${report.model} · checked against the data` : 'Gemini'} span={12} className="report">
       <div className="report-head no-print">
         <p className="fine">Gemini writes the words from the numbers and flags above. It can't add or change a flag, and every number it writes is checked against the data.</p>
         <div className="inline">

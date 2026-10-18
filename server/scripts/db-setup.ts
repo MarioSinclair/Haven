@@ -33,6 +33,15 @@ try {
   if (process.argv.includes('--seed')) {
     console.log('load seed.sql');
     await client.query(readFileSync(join(dbDir, 'seed.sql'), 'utf8'));
+    // On Tiger, rollups already materialized for the replaced days would keep the old numbers
+    // until their policy got round to them, so rebuild them now.
+    if (timescale) {
+      const views = await client.query(`select format('%I.%I', view_schema, view_name) as name from timescaledb_information.continuous_aggregates`);
+      for (const { name } of views.rows) {
+        console.log(`refresh ${name}`);
+        await client.query(`call refresh_continuous_aggregate('${name}', null, null)`);
+      }
+    }
     const counts = (
       await client.query('select (select count(*) from sessions) as sessions, (select count(*) from reps) as reps, (select count(*) from band_samples) as band_samples')
     ).rows[0];

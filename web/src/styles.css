@@ -181,6 +181,21 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button.signout {
+  background: var(--pink);
+  border-color: var(--pink);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+button.signout:hover:not(:disabled) {
+  background: var(--pink-deep);
+  border-color: var(--pink-deep);
+}
+
 button.primary,
 a.button.primary {
   background: var(--ink);
@@ -1627,7 +1642,6 @@ button.patient-row:hover:not(:disabled) {
 
   .topbar-right .fine,
   .topbar-right .pill,
-  .signout-email,
   .brand span {
     display: none;
   }
@@ -1687,13 +1701,19 @@ button.patient-row:hover:not(:disabled) {
   margin: 0 auto;
   padding: 1.75rem 16px 4rem;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+}
+
+/* Panels span a 12-column grid; directly in the console there's only the one column. */
+.ops > .panel {
+  grid-column: 1 / -1;
 }
 
 .ops-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   flex-wrap: wrap;
   gap: 1rem;
   padding: 1rem 1.1rem;
@@ -1711,13 +1731,6 @@ button.patient-row:hover:not(:disabled) {
   font-size: clamp(1.8rem, 3.4vw, 2.4rem);
 }
 
-.ops-id {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  color: var(--pink);
-}
-
 .ops-chips {
   display: flex;
   flex-wrap: wrap;
@@ -1728,12 +1741,11 @@ button.patient-row:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.04em;
-  padding: 0.3rem 0.55rem;
+  font-size: 0.88rem;
+  font-weight: 550;
+  padding: 0.35rem 0.7rem;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 999px;
   background: var(--bg);
   white-space: nowrap;
 }
@@ -1744,11 +1756,6 @@ button.patient-row:hover:not(:disabled) {
 
 .ops-live.snapshot {
   background: var(--warn-soft);
-}
-
-.ops-clock {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 
 .led {
@@ -1786,10 +1793,208 @@ button.patient-row:hover:not(:disabled) {
   }
 }
 
-.ops-kpis {
+/* At a glance: whether anything needs the PT, before any chart. */
+.glance {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 1rem 2.5rem;
+  padding: 1.15rem 1.25rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--ok);
+  border-radius: 8px;
+}
+
+.glance-warn {
+  border-left-color: var(--warn);
+}
+
+.glance-bad {
+  border-left-color: var(--danger);
+}
+
+.glance-verdict {
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+}
+
+.glance-verdict h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: clamp(1.4rem, 2.6vw, 1.85rem);
+  letter-spacing: -0.03em;
+}
+
+.glance-flags {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.glance-flag {
+  display: grid;
+  grid-template-columns: 4.6rem minmax(0, 1fr);
+  gap: 0.1rem 0.8rem;
+}
+
+.glance-tag {
+  grid-row: span 2;
+  align-self: start;
+  justify-self: start;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--hair);
+}
+
+.glance-flag-urgent .glance-tag {
+  background: var(--danger);
+  color: #fff;
+}
+
+.glance-flag-warn .glance-tag {
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+}
+
+.glance-flag strong {
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.glance-detail {
+  color: var(--ink-2);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.glance-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+.glance-card {
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+  padding: 1rem 1.1rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.glance-card-bad {
+  box-shadow: inset 0 4px 0 var(--warn);
+}
+
+.glance-label {
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.glance-value {
+  font-size: 2.3rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.glance-value small {
+  margin-left: 0.3rem;
+  font-size: 0.95rem;
+  font-weight: 550;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.glance-sub {
+  font-size: 0.86rem;
+  color: var(--ink-2);
+}
+
+.glance-card-bad .glance-sub,
+.glance-rows .down .glance-note {
+  color: var(--warn-ink);
+  font-weight: 600;
+}
+
+.glance-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.glance-rows li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.75rem;
+  align-items: baseline;
+}
+
+.glance-name {
+  font-weight: 600;
+}
+
+.glance-rows strong {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.glance-note {
+  grid-column: 1 / -1;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+/* Everything past the glance, one click away. */
+.ops-more > summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  padding: 0.9rem 1.15rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ops-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ops-more > summary::before {
+  content: '+';
+  width: 1ch;
+  color: var(--pink);
+  font-weight: 800;
+}
+
+.ops-more[open] > summary::before {
+  content: '–';
+}
+
+.ops-more > summary:hover {
+  border-color: var(--ink);
+}
+
+.ops-more > .ops-grid {
+  margin-top: 12px;
 }
 
 .kpi {
@@ -1902,25 +2107,16 @@ button.patient-row:hover:not(:disabled) {
 .panel-head {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0.55rem 0.85rem;
+  gap: 0.6rem;
+  padding: 0.7rem 0.95rem;
   border-bottom: 1px solid var(--hair);
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.panel-id {
-  color: var(--pink);
-  font-weight: 600;
+  font-size: 0.82rem;
 }
 
 .panel-title {
-  font-family: var(--mono);
-  font-size: 0.72rem;
+  font-size: 1rem;
   font-weight: 650;
-  letter-spacing: 0.06em;
+  letter-spacing: -0.01em;
 }
 
 .panel-meta {
@@ -1935,70 +2131,6 @@ button.patient-row:hover:not(:disabled) {
   gap: 0.6rem;
   align-content: start;
   min-width: 0;
-}
-
-.ops-note {
-  margin-top: -0.2rem;
-}
-
-.events {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  max-height: 360px;
-  overflow-y: auto;
-}
-
-.event {
-  display: grid;
-  grid-template-columns: 4.2rem 1fr;
-  gap: 0.6rem;
-  padding: 0.6rem 0;
-  border-top: 1px solid var(--hair);
-}
-
-.event:first-child {
-  border-top: none;
-  padding-top: 0;
-}
-
-.sev {
-  align-self: start;
-  justify-self: start;
-  font-family: var(--mono);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 0.15rem 0.4rem;
-  border-radius: 3px;
-  border: 1px solid var(--line);
-}
-
-.event-urgent .sev {
-  background: var(--danger);
-  color: #fff;
-}
-
-.event-warn .sev {
-  background: var(--warn);
-}
-
-.event-title {
-  font-weight: 650;
-  font-size: 0.92rem;
-  line-height: 1.3;
-}
-
-.event-detail {
-  color: var(--ink-2);
-  font-size: 0.82rem;
-  line-height: 1.4;
-}
-
-.event code {
-  color: var(--muted);
-  font-size: 0.7rem;
 }
 
 .phase rect {
@@ -2116,8 +2248,8 @@ button.patient-row:hover:not(:disabled) {
 }
 
 @media (max-width: 1100px) {
-  .ops-kpis {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .glance-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .panel {
@@ -2125,9 +2257,15 @@ button.patient-row:hover:not(:disabled) {
   }
 }
 
+@media (max-width: 800px) {
+  .glance {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 640px) {
-  .ops-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .glance-stats {
+    grid-template-columns: 1fr;
   }
 
   .panel-meta {
@@ -2138,7 +2276,9 @@ button.patient-row:hover:not(:disabled) {
 @media print {
   .ambient,
   .ops-head,
-  .ops-kpis,
+  .glance,
+  .glance-stats,
+  .ops-more,
   .panel:not(.report) {
     display: none !important;
   }
@@ -2257,39 +2397,6 @@ button.patient-row:hover:not(:disabled) {
 .console-frame .ops {
   padding: 0;
   max-width: none;
-}
-
-.gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1rem;
-}
-
-.gallery figure {
-  margin: 0;
-  display: grid;
-  gap: 0.5rem;
-}
-
-.gallery img {
-  width: 100%;
-  display: block;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--bg);
-  transition:
-    transform 0.2s var(--ease),
-    box-shadow 0.2s var(--ease);
-}
-
-.gallery a:hover img {
-  transform: translate(-2px, -2px);
-  box-shadow: 5px 5px 0 var(--pink-shadow);
-}
-
-.gallery figcaption {
-  font-size: 0.88rem;
-  color: var(--ink-2);
 }
 
 /* ------------------------------------------------------------------
@@ -2629,14 +2736,9 @@ button.patient-row:hover:not(:disabled) {
   visibility: hidden;
 }
 
-.quiet-link {
-  color: var(--muted);
-  text-decoration: none;
-  font-weight: 550;
-}
-
-.quiet-link:hover {
-  color: var(--ink);
+/* The pull comes first; the name appears with the logo once the ribbon lands. */
+.gate-brand-name {
+  visibility: hidden;
 }
 
 .gate-main {
@@ -2722,18 +2824,68 @@ button.patient-row:hover:not(:disabled) {
   padding: 0 16px;
 }
 
+/* The name is the headline; the slogan sits under it. */
+.gate-name {
+  font-size: clamp(3.6rem, 10vw, 6.5rem);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+}
+
+.gate-slogan {
+  font-size: clamp(1.4rem, 3vw, 2.1rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.gate-slogan em {
+  font-style: normal;
+  color: var(--pink);
+}
+
+/* The ribbon stays in front if it's pulled over the slogan. */
+.ribbon {
+  z-index: 2;
+}
+
+/* The app's gradient sits behind the gate, dark until the light comes on. */
+.gate .ambient {
+  opacity: 0;
+  transition: opacity 0.9s ease-out;
+}
+
+.gate.open .ambient {
+  opacity: 1;
+}
+
+/* Phones hide the name in the app's busy top bar; the landing page has room for it. */
+@media (max-width: 640px) {
+  .gate .brand > span:last-child {
+    display: inline;
+  }
+
+  /* The ribbon lands in this slot, so it must keep its place. */
+  .gate .brand > .gate-logo {
+    display: inline-flex;
+  }
+}
+
+/* The only words on the page before the pull, so they need to be seen. */
 .pull-hint {
-  font-family: var(--mono);
-  font-size: 0.85rem;
-  letter-spacing: 0.04em;
-  color: var(--ink-2);
+  font-size: clamp(1.25rem, 2.4vw, 1.6rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--ink);
   min-height: 1.4em;
 }
 
 .pull-hint.idle::after {
   content: ' ↓';
   display: inline-block;
+  margin-left: 0.15em;
   color: var(--pink);
+  font-weight: 800;
 }
 
 .pull-hint.armed {
@@ -2777,11 +2929,6 @@ button.patient-row:hover:not(:disabled) {
 
 .gate-login > * {
   visibility: hidden;
-}
-
-.gate-login h1 {
-  font-size: clamp(2.4rem, 6vw, 3.8rem);
-  letter-spacing: -0.04em;
 }
 
 .gate-login .muted {

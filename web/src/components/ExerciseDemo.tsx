@@ -31,7 +31,8 @@ export function ExerciseDemo({ exerciseId, side = 'left', limitDeg = null, size 
   return (
     <svg className="demo" viewBox="0 0 120 120" width={size} height={size} role="img" aria-label={`How to do the ${ex.name.toLowerCase()}`}>
       {exerciseId === 'forward_raise' && <SideFigure elevation={peak * raiseProfile(p)} peak={peak} limit={limitDeg} />}
-      {exerciseId === 'wall_walk' && <WallWalk p={p} peak={peak} limit={limitDeg} />}
+      {exerciseId === 'wall_walk' && <WallWalk p={p} side={side} peak={peak} limit={limitDeg} />}
+      {exerciseId === 'elbow_wing' && <ElbowWing p={p} side={side} />}
       {exerciseId === 'shoulder_roll' && <FrontFigure side={side} elevation={4} roll={p} />}
       {(exerciseId === 'side_raise' || exerciseId === 'scaption') && (
         // Scaption raises the arm 30° in front of the side plane, so seen from the front it reaches out less.
@@ -90,9 +91,7 @@ function FrontFigure({ side, elevation, peak, limit, spread = 1, roll }: { side:
   return (
     <g strokeLinecap="round" strokeLinejoin="round" fill="none">
       {peak !== undefined && <Guides origin={working} dir={dir} peak={peak} limit={limit ?? null} spread={spread} />}
-      <circle cx="60" cy="19" r="9" stroke={INK} strokeWidth="2.2" fill="#fff" />
-      <path d={`M${left.x} ${left.y} Q60 ${31 - lift} ${right.x} ${right.y} L72 75 L48 75 Z`} stroke={INK} strokeWidth="2.2" fill="#fff" />
-      <path d="M52 75 L50 111 M68 75 L70 111" stroke={INK} strokeWidth="2.2" />
+      <FrontBody left={left} right={right} lift={lift} />
       <line x1={(side === 'left' ? right : left).x} y1={(side === 'left' ? right : left).y} x2={otherHand.x} y2={otherHand.y} stroke={INK} strokeWidth="2.6" />
       <line x1={working.x} y1={working.y} x2={workHand.x} y2={workHand.y} stroke={PINK} strokeWidth="3.4" />
       <circle cx={workHand.x} cy={workHand.y} r="2.6" fill={PINK} />
@@ -123,14 +122,19 @@ function SideFigure({ elevation, peak, limit }: { elevation: number; peak: numbe
   );
 }
 
-/** Fingers walk up the wall in small steps to the limit, pause, and slide back down. */
-function WallWalk({ p, peak, limit }: { p: number; peak: number; limit: number | null }) {
-  const shoulder = { x: 74, y: 38 };
-  const wallX = 96;
-  const dx = wallX - 2 - shoulder.x;
+/** Side-on to the wall, facing the viewer: fingers walk up the wall in steps to the limit, pause, and slide down. */
+function WallWalk({ p, side, peak, limit }: { p: number; side: Side; peak: number; limit: number | null }) {
+  const left = { x: 45, y: 37 };
+  const right = { x: 75, y: 37 };
+  const dir = side === 'left' ? -1 : 1;
+  const shoulder = side === 'left' ? left : right;
+  const other = side === 'left' ? right : left;
+  const wallX = dir < 0 ? 12 : 108;
+  const handX = wallX - dir * 2;
+  const dx = Math.abs(shoulder.x - handX);
   // Highest point on the wall for this angle (measured from the arm hanging down).
-  const topY = Math.max(8, shoulder.y + dx / Math.tan(rad(Math.max(91, peak))));
-  const startY = shoulder.y + 6;
+  const topY = Math.max(6, shoulder.y + dx / Math.tan(rad(Math.max(91, peak))));
+  const startY = shoulder.y + 8;
   let y: number;
   if (p < 0.5) {
     const steps = 7;
@@ -139,29 +143,70 @@ function WallWalk({ p, peak, limit }: { p: number; peak: number; limit: number |
   } else if (p < 0.62) y = topY;
   else if (p < 0.9) y = topY + (startY - topY) * ease((p - 0.62) / 0.28);
   else y = startY;
-  const hand = { x: wallX - 2, y };
-  // Two-part arm, so the elbow bends while the hand stays on the wall.
-  const seg = 21;
+  const hand = { x: handX, y };
+  const elbow = bentElbow(shoulder, hand, 22);
+  const otherHand = { x: other.x - dir * Math.sin(rad(7)) * ARM, y: other.y + Math.cos(rad(7)) * ARM };
+  return (
+    <g strokeLinecap="round" strokeLinejoin="round" fill="none">
+      <line x1={wallX} y1="4" x2={wallX} y2="114" stroke={INK} strokeWidth="2.2" />
+      {Array.from({ length: 11 }, (_, i) => (
+        <line key={i} x1={wallX} y1={8 + i * 10} x2={wallX + dir * 6} y2={2 + i * 10} stroke={GUIDE} strokeWidth="1.4" />
+      ))}
+      {limit !== null && <line x1={wallX - dir * 10} y1={topY} x2={wallX} y2={topY} stroke={PINK} strokeWidth="1.6" strokeDasharray="3 2.5" />}
+      <FrontBody left={left} right={right} />
+      <line x1={other.x} y1={other.y} x2={otherHand.x} y2={otherHand.y} stroke={INK} strokeWidth="2.6" />
+      <path d={`M${shoulder.x} ${shoulder.y} L${elbow.x} ${elbow.y} L${hand.x} ${hand.y}`} stroke={PINK} strokeWidth="3.4" />
+      <circle cx={hand.x} cy={hand.y} r="2.6" fill={PINK} />
+    </g>
+  );
+}
+
+/** Hands behind the head: elbows together in front of the chin, out wide, and back together. */
+function ElbowWing({ p, side }: { p: number; side: Side }) {
+  const left = { x: 45, y: 37 };
+  const right = { x: 75, y: 37 };
+  const open = raiseProfile(p);
+  const elbowL = { x: 52 - 30 * open, y: 31 - 2 * open };
+  const elbowR = { x: 68 + 30 * open, y: 31 - 2 * open };
+  const handL = { x: 55, y: 15 };
+  const handR = { x: 65, y: 15 };
+  const color = (s: Side) => (s === side ? PINK : INK);
+  const width = (s: Side) => (s === side ? 3.4 : 2.6);
+  return (
+    <g strokeLinecap="round" strokeLinejoin="round" fill="none">
+      {/* Forearms first, so the head hides the hands clasped behind it. */}
+      <line x1={elbowL.x} y1={elbowL.y} x2={handL.x} y2={handL.y} stroke={color('left')} strokeWidth={width('left')} />
+      <line x1={elbowR.x} y1={elbowR.y} x2={handR.x} y2={handR.y} stroke={color('right')} strokeWidth={width('right')} />
+      <FrontBody left={left} right={right} />
+      <line x1={left.x} y1={left.y} x2={elbowL.x} y2={elbowL.y} stroke={color('left')} strokeWidth={width('left')} />
+      <line x1={right.x} y1={right.y} x2={elbowR.x} y2={elbowR.y} stroke={color('right')} strokeWidth={width('right')} />
+      <circle cx={side === 'left' ? elbowL.x : elbowR.x} cy={side === 'left' ? elbowL.y : elbowR.y} r="2.6" fill={PINK} />
+    </g>
+  );
+}
+
+/** Head, torso and legs, facing the viewer. */
+function FrontBody({ left, right, lift = 0 }: { left: { x: number; y: number }; right: { x: number; y: number }; lift?: number }) {
+  return (
+    <g>
+      <circle cx="60" cy="19" r="9" stroke={INK} strokeWidth="2.2" fill="#fff" />
+      <path d={`M${left.x} ${left.y} Q60 ${31 - lift} ${right.x} ${right.y} L72 75 L48 75 Z`} stroke={INK} strokeWidth="2.2" fill="#fff" />
+      <path d="M52 75 L50 111 M68 75 L70 111" stroke={INK} strokeWidth="2.2" />
+    </g>
+  );
+}
+
+/** Where the elbow sits for a two-part arm reaching from shoulder to hand: below the line between them. */
+function bentElbow(shoulder: { x: number; y: number }, hand: { x: number; y: number }, seg: number) {
   const d = Math.min(2 * seg - 0.01, Math.hypot(hand.x - shoulder.x, hand.y - shoulder.y));
   const mx = (shoulder.x + hand.x) / 2;
   const my = (shoulder.y + hand.y) / 2;
   const h = Math.sqrt(Math.max(0, seg * seg - (d / 2) ** 2));
   const ux = (hand.x - shoulder.x) / d;
   const uy = (hand.y - shoulder.y) / d;
-  // The elbow drops below the shoulder–hand line, toward the wall, as a real elbow does.
-  const elbow = { x: mx - uy * h, y: my + ux * h };
-  return (
-    <g strokeLinecap="round" strokeLinejoin="round" fill="none">
-      <line x1={wallX} y1="4" x2={wallX} y2="114" stroke={INK} strokeWidth="2.2" />
-      {Array.from({ length: 11 }, (_, i) => (
-        <line key={i} x1={wallX} y1={8 + i * 10} x2={wallX + 6} y2={2 + i * 10} stroke={GUIDE} strokeWidth="1.4" />
-      ))}
-      {limit !== null && <line x1={wallX - 10} y1={topY} x2={wallX} y2={topY} stroke={PINK} strokeWidth="1.6" strokeDasharray="3 2.5" />}
-      <SideBody x={16} />
-      <path d={`M${shoulder.x} ${shoulder.y} L${elbow.x} ${elbow.y} L${hand.x} ${hand.y}`} stroke={PINK} strokeWidth="3.4" />
-      <circle cx={hand.x} cy={hand.y} r="2.6" fill={PINK} />
-    </g>
-  );
+  const a = { x: mx - uy * h, y: my + ux * h };
+  const b = { x: mx + uy * h, y: my - ux * h };
+  return a.y >= b.y ? a : b;
 }
 
 function SideBody({ x = 0 }: { x?: number }) {

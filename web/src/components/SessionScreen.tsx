@@ -169,7 +169,7 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
 
         <div className="hud-row">
           <div className="stat">
-            <span className="stat-label">{ranged ? 'Reps' : 'Rolls'}</span>
+            <span className="stat-label">{exercise.measure === 'roll' ? 'Rolls' : 'Reps'}</span>
             <span className="stat-value" ref={repsRef}>
               {snap.repsDone}
               <small>/{block.reps}</small>
@@ -186,8 +186,14 @@ export function SessionScreen({ plan, band, coach, skeletonOnly: initialSkeleton
           )}
         </div>
 
-        {/* Rolls are counted from the shoulder, so the arm gauge, limit and form checks don't apply. */}
-        {!ranged && <p className="muted">Counting each roll as your shoulder lifts toward your ear and drops back.</p>}
+        {/* Rolls and winging are counted, not measured, so the arm gauge, limit and form checks don't apply. */}
+        {!ranged && (
+          <p className="muted">
+            {exercise.measure === 'roll'
+              ? 'Counting each roll as your shoulder lifts toward your ear and drops back.'
+              : 'Counting each time your elbows open out wide and come back together.'}
+          </p>
+        )}
         {ranged && (
           <>
             <div className="gauge-row">

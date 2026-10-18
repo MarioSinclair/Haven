@@ -14,13 +14,12 @@ export const authConfigured = !!(domain && clientId && audience);
 export const GATE_PASSED_KEY = 'gate-passed';
 
 interface AuthInfo {
-  email: string | null;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthInfo | null>(null);
 
-/** Signed-in user and a sign-out action, or null when Auth0 isn't configured (dev mode). */
+/** A sign-out action, or null when Auth0 isn't configured (dev mode). */
 export const useAuthInfo = () => useContext(AuthContext);
 
 export function markGatePassed() {
@@ -76,7 +75,7 @@ function DevGate({ children }: { children: ReactNode }) {
 }
 
 function SignedIn({ children }: { children: ReactNode }) {
-  const { isLoading, isAuthenticated, loginWithRedirect, getAccessTokenSilently, logout, user, error } = useAuth0();
+  const { isLoading, isAuthenticated, loginWithRedirect, getAccessTokenSilently, logout, error } = useAuth0();
 
   if (isLoading) return <div className="loading">Signing in…</div>;
 
@@ -98,7 +97,7 @@ function SignedIn({ children }: { children: ReactNode }) {
 
   setTokenGetter(async () => (await getAccessTokenSilently()) ?? '');
   return (
-    <AuthContext.Provider value={{ email: user?.email ?? null, logout: () => logout({ logoutParams: { returnTo: window.location.origin } }) }}>
+    <AuthContext.Provider value={{ logout: () => logout({ logoutParams: { returnTo: window.location.origin } }) }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import type { BandTrace, Progress, SystemStats } from '../lib/apiTypes';
-import { daysBetween } from '../lib/flags';
+import { percentOf } from '../lib/baseline';
+import { daysBetween, type Severity } from '../lib/flags';
 import { countUp, EASE, gsap, reducedMotion, useGSAP } from '../lib/motion';
 import { DEFAULT_PROTOCOL, EXERCISES } from '../lib/protocol';
-import { BarChart, LineChart, SERIES_COLORS, shortDay, Sparkline, TraceChart } from './charts';
-import { SEVERITY } from './ReportView';
+import { BarChart, LineChart, SERIES_COLORS, shortDay, TraceChart } from './charts';
 
-const REFERENCE_NAME = { clinician_goal: 'PT goal', pre_op: 'pre-op', contralateral: 'other arm', general_goal: 'goal' } as const;
+const OF_REFERENCE = { clinician_goal: 'of the goal you set', pre_op: 'of pre-op range', contralateral: 'of the other arm', general_goal: 'of the general goal' } as const;
+const BAND_NAME = { clinician_goal: 'GOAL', pre_op: 'PRE-OP', contralateral: 'OTHER ARM', general_goal: 'GOAL' } as const;
+const SEVERITY_ORDER: Severity[] = ['urgent', 'warn', 'info'];
+const FLAG_TAG: Record<Severity, string> = { urgent: 'Urgent', warn: 'Review', info: 'Note' };
 
 interface Props {
   progress: Progress;
@@ -14,14 +17,20 @@ interface Props {
   system: SystemStats | null;
   /** Live from the server, or the bundled snapshot. */
   source: 'live' | 'snapshot';
-  /** Rendered as the last panel, e.g. the Gemini report. */
+  /** Shown after the range chart, e.g. the Gemini report. */
   reportSlot?: ReactNode;
+  /** Start with the detail panels open. */
+  detailOpen?: boolean;
 }
 
-/** The clinician's console: one screen, every signal, each panel labelled like an instrument. */
-export function Dashboard({ progress, bandTrace, system, source, reportSlot }: Props) {
+/**
+ * The clinician's view of one patient, built for a quick glance: whether anything needs them, the
+ * few numbers that matter and the range chart first, everything else one click away.
+ */
+export function Dashboard({ progress, bandTrace, system, source, reportSlot, detailOpen = false }: Props) {
   const root = useRef<HTMLDivElement>(null);
-  const { patient, exercises, sessions, dailyUse, flags, asOf } = progress;
+  const { patient, sessions, dailyUse, flags, asOf } = progress;
+  const exercises = progress.exercises.filter((e) => e.days.length > 0);
 
   useGSAP(
     () => {
@@ -31,25 +40,41 @@ export function Dashboard({ progress, bandTrace, system, source, reportSlot }: P
         return;
       }
       gsap.fromTo(items, { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: EASE, stagger: 0.05, clearProps: 'transform' });
-      gsap.fromTo('.event', { autoAlpha: 0, x: -10 }, { autoAlpha: 1, x: 0, duration: 0.5, ease: EASE, stagger: 0.06, delay: 0.5 });
       countUp(root.current);
     },
     { scope: root, dependencies: [progress], revertOnUpdate: true },
   );
 
   const days = (from: string) => daysBetween(from, asOf);
-  const window14 = sessions.filter((s) => days(s.day) < 14);
-  const sessionDays = new Set(window14.map((s) => s.day));
+  const sessionDays = new Set(sessions.filter((s) => days(s.day) < 14).map((s) => s.day));
+  const lastSession = sessions[sessions.length - 1];
 
-  // KPIs
+  // What needs the PT, most serious first.
+  const sorted = [...flags].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
+  const urgent = flags.filter((f) => f.severity === 'urgent').length;
+  const review = flags.filter((f) => f.severity === 'warn').length;
+  const status = urgent ? 'bad' : review ? 'warn' : 'ok';
+  const verdict = urgent ? 'Needs attention today' : review ? 'Worth a look' : 'On track';
+  const counted = [urgent && `${urgent} urgent`, review && `${review} to review`].filter(Boolean).join(', ');
+
+  // Headline numbers.
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   const pained = sessions.filter((s) => s.maxPain !== null);
   const lastPain = pained[pained.length - 1]?.maxPain ?? null;
-  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   const painRecent = mean(pained.slice(-3).map((s) => s.maxPain!));
   const painBefore = mean(pained.slice(-6, -3).map((s) => s.maxPain!));
+  const painChange = pained.length >= 4 ? painRecent - painBefore : 0;
+  const painTrend =
+    pained.length < 4
+      ? 'Peak pain in the last session'
+      : painChange >= 1
+        ? `Rising: ${painRecent.toFixed(1)} lately, was ${painBefore.toFixed(1)}`
+        : painChange <= -1
+          ? `Easing: ${painRecent.toFixed(1)} lately, was ${painBefore.toFixed(1)}`
+          : `Steady at about ${painRecent.toFixed(1)}`;
   const useRecent = mean(dailyUse.slice(-3).map((u) => u.activeMinutes));
   const useBefore = mean(dailyUse.slice(-10, -3).map((u) => u.activeMinutes));
-  const useDelta = useBefore ? ((useRecent - useBefore) / useBefore) * 100 : 0;
+  const useDelta = useBefore ? Math.round(((useRecent - useBefore) / useBefore) * 100) : null;
   const gaps = exercises.flatMap((e) => e.days.map((d) => d.cameraBandGapDeg).filter((g): g is number => g !== null));
   const gap = gaps.length ? mean(gaps) : null;
 
@@ -57,8 +82,8 @@ export function Dashboard({ progress, bandTrace, system, source, reportSlot }: P
   const phases: { fromDay: string; toDay: string; label: string }[] = [];
   for (const s of sessions) {
     const last = phases[phases.length - 1];
-    if (last && last.label.startsWith(`P${s.phase}`)) last.toDay = s.day;
-    else phases.push({ fromDay: s.day, toDay: s.day, label: `P${s.phase} · ${DEFAULT_PROTOCOL[s.phase as 1 | 2 | 3].label.toUpperCase()}` });
+    if (last && last.label === `PHASE ${s.phase}`) last.toDay = s.day;
+    else phases.push({ fromDay: s.day, toDay: s.day, label: `PHASE ${s.phase}` });
   }
   const markers = sessions.filter((s) => s.armpitCord || s.armHeaviness).map((s) => ({ day: s.day, label: s.armHeaviness ? 'Swelling reported' : 'Cording reported' }));
   const phase1 = sessions.filter((s) => s.phase === 1);
@@ -70,8 +95,9 @@ export function Dashboard({ progress, bandTrace, system, source, reportSlot }: P
       : undefined;
   const refs = exercises.filter((e) => e.reference.source !== 'general_goal').map((e) => e.reference.deg);
   const band = refs.length
-    ? { from: Math.min(...refs), to: Math.max(...refs), label: `${REFERENCE_NAME[exercises[0].reference.source].toUpperCase()}\n${Math.round(Math.min(...refs))}–${Math.round(Math.max(...refs))}°` }
+    ? { from: Math.min(...refs), to: Math.max(...refs), label: `${BAND_NAME[exercises[0].reference.source]}\n${Math.round(Math.min(...refs))}–${Math.round(Math.max(...refs))}°` }
     : undefined;
+  const bothSides = exercises.some((x) => x.side !== exercises[0].side);
 
   // Per-day form and the session log.
   const byDay = new Map<string, { reps: number; comp: number; over: number; best: Record<string, number> }>();
@@ -86,51 +112,78 @@ export function Dashboard({ progress, bandTrace, system, source, reportSlot }: P
     }
   }
   const formDays = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, r]) => ({ day, value: (r.comp / Math.max(1, r.reps)) * 100 }));
-  const counts = { urgent: flags.filter((f) => f.severity === 'urgent').length, warn: flags.filter((f) => f.severity === 'warn').length, info: flags.filter((f) => f.severity === 'info').length };
+
+  const sideLabel = patient.affectedSide === 'both' ? 'Both sides' : `${patient.affectedSide[0].toUpperCase()}${patient.affectedSide.slice(1)} side`;
+  const postOp = patient.surgeryDate ? `day ${days(patient.surgeryDate)} after surgery` : null;
 
   return (
     <div className="ops" ref={root}>
       <header className="ops-head" data-reveal>
         <div>
-          <p className="ops-id">PATIENT {patient.id.slice(-4).toUpperCase()} · {patient.affectedSide.toUpperCase()} SIDE</p>
           <h1>{patient.displayName}</h1>
-          <p className="muted">{patient.surgeryType ?? 'Post-mastectomy rehab'}</p>
+          <p className="muted">{[sideLabel, patient.surgeryType, postOp].filter(Boolean).join(' · ')}</p>
         </div>
         <div className="ops-chips">
-          {patient.surgeryDate && <span className="ops-chip">POST-OP DAY {days(patient.surgeryDate)}</span>}
           <span className="ops-chip">
-            PHASE {patient.currentPhase} · {DEFAULT_PROTOCOL[patient.currentPhase].label.toUpperCase()}
+            Phase {patient.currentPhase}: {DEFAULT_PROTOCOL[patient.currentPhase].label}
           </span>
-          <span className="ops-chip">DATA THROUGH {shortDay(asOf).toUpperCase()}</span>
           <span className={`ops-chip ops-live ${source}`}>
             <i className="led" />
-            {source === 'live' ? 'LIVE' : 'SNAPSHOT'} <Clock />
+            {source === 'live' ? `Updated ${shortDay(asOf)}` : 'Sample patient'}
           </span>
         </div>
       </header>
 
-      <section className="ops-kpis" aria-label="Key numbers" data-reveal>
-        {exercises.map((e) => {
-          const last = e.days[e.days.length - 1];
-          const best = Math.max(...e.days.map((d) => d.bestPeakDeg));
-          const pct = Math.round((last.bestPeakDeg / e.reference.deg) * 100);
-          return (
-            <Kpi
-              key={`${e.exerciseId}:${e.side}`}
-              label={`${EXERCISES[e.exerciseId].short} · % ${REFERENCE_NAME[e.reference.source]}`}
-              value={pct}
-              suffix="%"
-              sub={`${Math.round(last.bestPeakDeg)}° now · ${Math.round(best)}° best`}
-              tone={last.bestPeakDeg < best * 0.9 ? 'bad' : 'neutral'}
-              spark={e.days.map((d) => d.bestPeakDeg)}
-            />
-          );
-        })}
-        <div className="kpi">
-          <span className="kpi-label">Adherence · 14 d</span>
-          <span className="kpi-value">
+      <section className={`glance glance-${status}`} aria-label="At a glance" data-reveal>
+        <div className="glance-verdict">
+          <h2>
+            <i className={`led led-${status}`} aria-hidden="true" />
+            {verdict}
+          </h2>
+          <p className="muted">{counted ? `${counted} from the latest sessions.` : 'Nothing flagged in the latest sessions.'}</p>
+        </div>
+        {sorted.length > 0 && (
+          <ul className="glance-flags">
+            {sorted.map((f) => (
+              <li key={f.rule} className={`glance-flag glance-flag-${f.severity}`}>
+                <span className="glance-tag">{FLAG_TAG[f.severity]}</span>
+                <strong>{f.title}</strong>
+                <span className="glance-detail">{f.detail}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="glance-stats" aria-label="Key numbers" data-reveal>
+        {exercises.length > 0 && (
+          <Stat label="Range, latest session">
+            <ul className="glance-rows">
+              {exercises.map((e) => {
+                const last = e.days[e.days.length - 1];
+                const best = Math.max(...e.days.map((d) => d.bestPeakDeg));
+                const dropped = last.bestPeakDeg < best * 0.9;
+                return (
+                  <li key={`${e.exerciseId}:${e.side}`} className={dropped ? 'down' : ''}>
+                    <span className="glance-name">
+                      {EXERCISES[e.exerciseId].name}
+                      {bothSides ? ` (${e.side})` : ''}
+                    </span>
+                    <strong>{Math.round(last.bestPeakDeg)}°</strong>
+                    <span className="glance-note">
+                      {percentOf(last.bestPeakDeg, e.reference)}% {OF_REFERENCE[e.reference.source]}
+                      {dropped ? ` · down from ${Math.round(best)}°` : ''}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Stat>
+        )}
+        <Stat label="Sessions, last 14 days">
+          <span className="glance-value">
             <span data-count={sessionDays.size}>{sessionDays.size}</span>
-            <small>/14</small>
+            <small>of 14 days</small>
           </span>
           <span className="adherence" aria-label={`${sessionDays.size} of the last 14 days had a session`}>
             {Array.from({ length: 14 }, (_, i) => {
@@ -138,176 +191,160 @@ export function Dashboard({ progress, bandTrace, system, source, reportSlot }: P
               return <i key={d} className={sessionDays.has(d) ? 'on' : ''} title={shortDay(d)} />;
             })}
           </span>
-        </div>
+          {lastSession && <span className="glance-sub">Last one {shortDay(lastSession.day)}</span>}
+        </Stat>
         {lastPain !== null && (
-          <Kpi
-            label="Pain · last session"
-            value={lastPain}
-            suffix="/10"
-            sub={`last 3 avg ${painRecent.toFixed(1)}, was ${painBefore.toFixed(1)}`}
-            tone={painRecent - painBefore >= 2 ? 'bad' : 'neutral'}
-            spark={pained.map((s) => s.maxPain!)}
-          />
+          <Stat label="Pain" tone={painChange >= 2 || lastPain >= 7 ? 'bad' : 'neutral'}>
+            <span className="glance-value">
+              <span data-count={lastPain}>{lastPain}</span>
+              <small>/10</small>
+            </span>
+            <span className="glance-sub">{painTrend}</span>
+          </Stat>
         )}
         {dailyUse.length > 0 && (
-          <Kpi
-            label="Arm use · min/day"
-            value={Math.round(useRecent)}
-            sub={`${useDelta >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(useDelta))}% vs prior week`}
-            tone={useDelta <= -30 ? 'bad' : 'neutral'}
-            spark={dailyUse.map((u) => u.activeMinutes)}
-          />
+          <Stat label="Arm use, from the band" tone={useDelta !== null && useDelta <= -30 ? 'bad' : 'neutral'}>
+            <span className="glance-value">
+              <span data-count={Math.round(useRecent)}>{Math.round(useRecent)}</span>
+              <small>min a day</small>
+            </span>
+            <span className="glance-sub">{useDelta === null ? 'Active minutes, last 3 days' : `${Math.abs(useDelta)}% ${useDelta < 0 ? 'less' : 'more'} than the week before`}</span>
+          </Stat>
         )}
-        {gap !== null && <Kpi label="Camera ↔ band" value={gap} decimals={1} suffix="°" sub="mean peak gap" tone="good" />}
       </section>
 
-      <div className="ops-grid">
-        <Panel id="01" title="Range of motion" meta="best per session · degrees" span={8}>
-          <LineChart
-            title="Range of motion"
-            showTitle={false}
-            unit="°"
-            yMax={180}
-            yTicks={[0, 45, 90, 135, 180]}
-            band={band}
-            limit={limit}
-            phases={phases}
-            markers={markers}
-            height={300}
-            series={exercises.map((e, i) => ({
-              id: `${e.exerciseId}:${e.side}`,
-              label: `${EXERCISES[e.exerciseId].name}${exercises.some((x) => x.side !== e.side) ? ` (${e.side})` : ''}`,
-              color: SERIES_COLORS[i % SERIES_COLORS.length],
-              points: e.days.map((d) => ({ day: d.day, value: d.bestPeakDeg })),
-            }))}
-          />
-        </Panel>
+      <Panel title="Range of motion" meta="Best each session, in degrees" span={12}>
+        <LineChart
+          title="Range of motion"
+          showTitle={false}
+          unit="°"
+          yMax={180}
+          yTicks={[0, 45, 90, 135, 180]}
+          band={band}
+          limit={limit}
+          phases={phases}
+          markers={markers}
+          height={300}
+          series={exercises.map((e, i) => ({
+            id: `${e.exerciseId}:${e.side}`,
+            label: `${EXERCISES[e.exerciseId].name}${bothSides ? ` (${e.side})` : ''}`,
+            color: SERIES_COLORS[i % SERIES_COLORS.length],
+            points: e.days.map((d) => ({ day: d.day, value: d.bestPeakDeg })),
+          }))}
+        />
+      </Panel>
 
-        <Panel id="02" title="Event log" meta={`${counts.urgent} urgent · ${counts.warn} warn · ${counts.info} info`} span={4} status={counts.urgent ? 'bad' : counts.warn ? 'warn' : 'ok'}>
-          <p className="fine ops-note">Raised by fixed rules in code, not by AI.</p>
-          {flags.length === 0 ? (
-            <p className="muted">All clear.</p>
-          ) : (
-            <ol className="events">
-              {flags.map((f) => (
-                <li key={f.rule} className={`event event-${f.severity}`}>
-                  <span className="sev">{SEVERITY[f.severity].tag}</span>
-                  <div>
-                    <p className="event-title">{f.title}</p>
-                    <p className="event-detail">{f.detail}</p>
-                    <code>{f.rule}</code>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Panel>
+      {reportSlot}
 
-        <Panel
-          id="03"
-          title="Band telemetry"
-          meta={bandTrace ? `${bandTrace.rawSamples.toLocaleString()} rows @ 20 Hz → ${bandTrace.points.length} pts @ ${bandTrace.hz} Hz` : 'no band data'}
-          span={8}
-        >
-          {bandTrace ? (
-            <>
-              <TraceChart points={bandTrace.points} label="Arm elevation from the armband during the last session" />
-              <p className="fine ops-note">
-                Last session, {new Date(bandTrace.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}. Peak{' '}
-                {Math.round(Math.max(...bandTrace.points.map((p) => p.deg)))}°. Raw stream stored as a hypertable; max-pooled in SQL for display.
-              </p>
-            </>
-          ) : (
-            <p className="muted">Connect the armband during a session to record its stream.</p>
-          )}
-        </Panel>
-
-        <Panel id="04" title="Data pipeline" meta={system?.engine ?? 'unknown'} span={4}>
-          {system ? <SystemPanel system={system} /> : <p className="muted">Unavailable.</p>}
-        </Panel>
-
-        {dailyUse.length > 0 && (
-          <Panel id="05" title="Daily arm use" meta="armband · active min/day" span={4}>
-            <BarChart
-              title="Active arm minutes a day"
+      <details className="ops-more" open={detailOpen} data-reveal>
+        <summary>
+          More detail
+          <span className="fine">Pain and form over time, daily arm use, the armband's last session, every session and the database</span>
+        </summary>
+        <div className="ops-grid">
+          <Panel title="Pain" meta="Peak each session, 0–10" span={4}>
+            <LineChart
+              title="Peak pain each session"
               showTitle={false}
-              unit=" min"
-              yMax={niceMax(Math.max(...dailyUse.map((u) => u.activeMinutes)))}
-              yTicks={ticks(niceMax(Math.max(...dailyUse.map((u) => u.activeMinutes))))}
-              color={SERIES_COLORS[0]}
-              points={dailyUse.map((u) => ({ day: u.day, value: u.activeMinutes }))}
-              detail={(day) => {
-                const u = dailyUse.find((x) => x.day === day);
-                return u ? `${u.raisesOver90} raises above 90°, highest ${Math.round(u.maxElevDeg)}°` : null;
-              }}
+              unit=""
+              yMax={10}
+              yTicks={[0, 5, 10]}
+              height={200}
+              series={[{ id: 'pain', label: 'Pain', color: SERIES_COLORS[0], points: pained.map((s) => ({ day: s.day, value: s.maxPain! })) }]}
             />
           </Panel>
-        )}
 
-        <Panel id="06" title="Pain" meta="peak per session · 0–10" span={4}>
-          <LineChart
-            title="Peak pain each session"
-            showTitle={false}
-            unit=""
-            yMax={10}
-            yTicks={[0, 5, 10]}
-            height={200}
-            series={[{ id: 'pain', label: 'Pain', color: SERIES_COLORS[0], points: pained.map((s) => ({ day: s.day, value: s.maxPain! })) }]}
-          />
-        </Panel>
+          <Panel title="Form" meta="Reps with compensation, %" span={4}>
+            <BarChart title="Reps with compensation" showTitle={false} unit="%" yMax={100} yTicks={[0, 50, 100]} color={SERIES_COLORS[1]} points={formDays} />
+          </Panel>
 
-        <Panel id="07" title="Form" meta="reps with compensation · %" span={4}>
-          <BarChart title="Reps with compensation" showTitle={false} unit="%" yMax={100} yTicks={[0, 50, 100]} color={SERIES_COLORS[1]} points={formDays} />
-        </Panel>
+          {dailyUse.length > 0 && (
+            <Panel title="Daily arm use" meta="Armband, active minutes" span={4}>
+              <BarChart
+                title="Active arm minutes a day"
+                showTitle={false}
+                unit=" min"
+                yMax={niceMax(Math.max(...dailyUse.map((u) => u.activeMinutes)))}
+                yTicks={ticks(niceMax(Math.max(...dailyUse.map((u) => u.activeMinutes))))}
+                color={SERIES_COLORS[0]}
+                points={dailyUse.map((u) => ({ day: u.day, value: u.activeMinutes }))}
+                detail={(day) => {
+                  const u = dailyUse.find((x) => x.day === day);
+                  return u ? `${u.raisesOver90} raises above 90°, highest ${Math.round(u.maxElevDeg)}°` : null;
+                }}
+              />
+            </Panel>
+          )}
 
-        <Panel id="08" title="Session log" meta={`${sessions.length} sessions`} span={12}>
-          <div className="table-scroll">
-            <table className="rx ops-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Phase</th>
-                  {exercises.map((e) => (
-                    <th key={e.exerciseId + e.side}>{EXERCISES[e.exerciseId].name}</th>
-                  ))}
-                  <th>Reps</th>
-                  <th>Past limit</th>
-                  <th>Form %</th>
-                  <th>Pain</th>
-                  <th>Reported</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...sessions].reverse().map((s, i) => {
-                  const r = byDay.get(s.day);
-                  return (
-                    <tr key={`${s.day}-${i}`}>
-                      <td>{shortDay(s.day)}</td>
-                      <td>P{s.phase}</td>
-                      {exercises.map((e) => (
-                        <td key={e.exerciseId + e.side}>{r?.best[e.exerciseId] === undefined ? '–' : `${Math.round(r.best[e.exerciseId])}°`}</td>
-                      ))}
-                      <td>{r?.reps ?? '–'}</td>
-                      <td className={r?.over ? 'cell-warn' : ''}>{r?.over ?? 0}</td>
-                      <td>{r ? Math.round((r.comp / Math.max(1, r.reps)) * 100) : '–'}</td>
-                      <td className={(s.maxPain ?? 0) >= 7 ? 'cell-warn' : ''}>{s.maxPain ?? '–'}</td>
-                      <td>{[s.armpitCord && 'cording', s.armHeaviness && 'swelling'].filter(Boolean).join(', ') || '–'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
+          <Panel
+            title="Armband, last session"
+            meta={bandTrace ? `${bandTrace.rawSamples.toLocaleString()} readings at 20 Hz, shown at ${bandTrace.hz} Hz` : 'No band data'}
+            span={8}
+          >
+            {bandTrace ? (
+              <>
+                <TraceChart points={bandTrace.points} label="Arm elevation from the armband during the last session" />
+                <p className="fine">
+                  {new Date(bandTrace.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}, peak{' '}
+                  {Math.round(Math.max(...bandTrace.points.map((p) => p.deg)))}°.
+                  {gap !== null && ` Camera and band peaks agree within ${gap.toFixed(1)}° on average.`} Raw stream stored as a hypertable; max-pooled in SQL for display.
+                </p>
+              </>
+            ) : (
+              <p className="muted">Connect the armband during a session to record its stream.</p>
+            )}
+          </Panel>
 
-        {reportSlot}
-      </div>
+          <Panel title="Database" meta={system?.engine ?? 'unknown'} span={4}>
+            {system ? <SystemPanel system={system} /> : <p className="muted">Unavailable.</p>}
+          </Panel>
+
+          <Panel title="Session log" meta={`${sessions.length} sessions`} span={12}>
+            <div className="table-scroll">
+              <table className="rx ops-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Phase</th>
+                    {exercises.map((e) => (
+                      <th key={e.exerciseId + e.side}>{EXERCISES[e.exerciseId].name}</th>
+                    ))}
+                    <th>Reps</th>
+                    <th>Past limit</th>
+                    <th>Form %</th>
+                    <th>Pain</th>
+                    <th>Reported</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...sessions].reverse().map((s, i) => {
+                    const r = byDay.get(s.day);
+                    return (
+                      <tr key={`${s.day}-${i}`}>
+                        <td>{shortDay(s.day)}</td>
+                        <td>P{s.phase}</td>
+                        {exercises.map((e) => (
+                          <td key={e.exerciseId + e.side}>{r?.best[e.exerciseId] === undefined ? '–' : `${Math.round(r.best[e.exerciseId])}°`}</td>
+                        ))}
+                        <td>{r?.reps ?? '–'}</td>
+                        <td className={r?.over ? 'cell-warn' : ''}>{r?.over ?? 0}</td>
+                        <td>{r ? Math.round((r.comp / Math.max(1, r.reps)) * 100) : '–'}</td>
+                        <td className={(s.maxPain ?? 0) >= 7 ? 'cell-warn' : ''}>{s.maxPain ?? '–'}</td>
+                        <td>{[s.armpitCord && 'cording', s.armHeaviness && 'swelling'].filter(Boolean).join(', ') || '–'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        </div>
+      </details>
     </div>
   );
 }
 
 export function Panel({
-  id,
   title,
   meta,
   span,
@@ -315,7 +352,6 @@ export function Panel({
   children,
   className = '',
 }: {
-  id: string;
   title: string;
   meta?: string;
   span: number;
@@ -327,7 +363,6 @@ export function Panel({
     <section className={`panel ${className}`} style={{ '--span': span } as React.CSSProperties} data-reveal>
       <header className="panel-head">
         <i className={`led led-${status}`} aria-hidden="true" />
-        <span className="panel-id">{id}</span>
         <h2 className="panel-title">{title}</h2>
         {meta && <span className="panel-meta">{meta}</span>}
       </header>
@@ -336,34 +371,11 @@ export function Panel({
   );
 }
 
-function Kpi({
-  label,
-  value,
-  suffix = '',
-  decimals = 0,
-  sub,
-  tone,
-  spark,
-}: {
-  label: string;
-  value: number;
-  suffix?: string;
-  decimals?: number;
-  sub?: string;
-  tone: 'good' | 'bad' | 'neutral';
-  spark?: number[];
-}) {
+function Stat({ label, tone = 'neutral', children }: { label: string; tone?: 'bad' | 'neutral'; children: ReactNode }) {
   return (
-    <div className={`kpi kpi-${tone}`}>
-      <span className="kpi-label">{label}</span>
-      <span className="kpi-value">
-        <span data-count={value.toFixed(decimals)} data-decimals={decimals}>
-          {value.toFixed(decimals)}
-        </span>
-        <small>{suffix}</small>
-      </span>
-      {sub && <span className="kpi-sub">{sub}</span>}
-      {spark && <Sparkline values={spark} />}
+    <div className={`glance-card glance-card-${tone}`}>
+      <span className="glance-label">{label}</span>
+      {children}
     </div>
   );
 }
@@ -406,16 +418,6 @@ function SystemPanel({ system }: { system: SystemStats }) {
       )}
     </div>
   );
-}
-
-/** Wall clock, ticking, for the console header. */
-function Clock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  return <span className="ops-clock">{now.toLocaleTimeString([], { hour12: false })}</span>;
 }
 
 function niceMax(v: number): number {

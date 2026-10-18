@@ -21,13 +21,6 @@ const TEAM: { name: string; role: string }[] = [
   { name: 'Teammate 2', role: 'Armband firmware and Bluetooth' },
   { name: 'Teammate 3', role: 'Server, Tiger Data, dashboard and Gemini report' },
 ];
-/** Screenshots and photos. Put files in web/public/judges/ and list them here. */
-const GALLERY: { src: string; caption: string }[] = [
-  { src: '/judges/console.png', caption: 'The PT console on the simulated demo patient: range, flags, band telemetry, daily use, pain and form.' },
-  { src: '/judges/setup.png', caption: 'Session setup: phase, per-exercise limits set by the PT, armband connection and comfort options.' },
-  { src: '/judges/judges-replay.png', caption: 'The replay further up this page: the real session engine on a scripted set.' },
-  // { src: '/judges/demo-1.jpg', caption: 'Live session with the armband on.' },
-];
 // ---------------------------------------------------------------------------------------------
 
 const FACTS = [
@@ -117,7 +110,7 @@ export function JudgesPage() {
         <header className="j-hero">
           <p className="eyebrow j-reveal">A personal post-mastectomy rehab coach · for judges</p>
           <h1>
-            Getting your <em>reach</em> back after breast cancer surgery.
+            Recover at home, <em>never alone</em>.
           </h1>
           <div className="tldr j-reveal">
             {TLDR.map((row) => (
@@ -196,8 +189,9 @@ export function JudgesPage() {
                   bandTrace={demo.bundle.bandTrace}
                   system={demo.bundle.system}
                   source={demo.source}
+                  detailOpen
                   reportSlot={
-                    <Panel id="09" title="Report" meta={demo.bundle.report ? `${demo.bundle.report.model} · checked against the data` : 'Gemini'} span={12} className="report">
+                    <Panel title="Report" meta={demo.bundle.report ? `${demo.bundle.report.model} · checked against the data` : 'Gemini'} span={12} className="report">
                       {demo.bundle.report ? (
                         <ReportView report={demo.bundle.report} />
                       ) : (
@@ -212,24 +206,8 @@ export function JudgesPage() {
             </div>
           </section>
 
-          {GALLERY.length > 0 && (
-            <section className="j-section">
-              <SectionHead n="04" title="Screens and photos" />
-              <div className="gallery">
-                {GALLERY.map((g) => (
-                  <figure key={g.src} className="j-reveal">
-                    <a href={g.src} target="_blank" rel="noreferrer">
-                      <img src={g.src} alt={g.caption} loading="lazy" onError={(e) => ((e.currentTarget.closest('figure') as HTMLElement).style.display = 'none')} />
-                    </a>
-                    <figcaption>{g.caption}</figcaption>
-                  </figure>
-                ))}
-              </div>
-            </section>
-          )}
-
           <section className="j-section" id="how">
-            <SectionHead n="05" title="How it works" />
+            <SectionHead n="04" title="How it works" />
             <div className="j-cards">
               <article className="card j-reveal">
                 <p className="eyebrow">Camera coach</p>
@@ -314,7 +292,7 @@ export function JudgesPage() {
           </section>
 
           <section className="j-section j-reveal">
-            <SectionHead n="06" title="Privacy and honest notes" />
+            <SectionHead n="05" title="Privacy and honest notes" />
             <ul className="j-list">
               <li>Video never leaves the laptop. Pose tracking runs on-device; only angles, counts and answers are stored.</li>
               <li>Patients can hide the camera image and see only an outline of their arm, which matters after chest surgery.</li>
@@ -327,7 +305,7 @@ export function JudgesPage() {
           </section>
 
           <section className="j-section j-reveal">
-            <SectionHead n="07" title="Team" />
+            <SectionHead n="06" title="Team" />
             <ul className="j-team">
               {TEAM.map((m) => (
                 <li key={m.name}>

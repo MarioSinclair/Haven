@@ -8,7 +8,7 @@ import { allLines } from '../voice/lines';
 const FRAME_MS = 33;
 
 function frame(deg: number, over: Partial<PoseMetrics> = {}): PoseMetrics {
-  return { elevationDeg: deg, elbowDeg: 175, trunkLeanDeg: 0, earLift: 0.3, facingRatio: 0.8, confidence: 0.9, ...over };
+  return { elevationDeg: deg, elbowDeg: 175, trunkLeanDeg: 0, earLift: 0.3, facingRatio: 0.8, elbowSpread: 1.1, confidence: 0.9, ...over };
 }
 
 function plan(block: Partial<Block> = {}, kind: SessionPlan['kind'] = 'exercise'): SessionPlan {
@@ -47,7 +47,14 @@ class Driver {
     const dur = 1600;
     this.hold(dur + 400, (t) => frame(10, { earLift: 0.3 * (1 - (t - start <= dur ? (closes / 2) * (1 - Math.cos((2 * Math.PI * (t - start)) / dur)) : 0)) }));
   }
-    stages(): StageName[] {
+    /** One elbow-winging cycle with the hands behind the head: together, out wide, back together. */
+  wing(closed = 0.5, open = 1.9, deg: (opened: number) => number = () => 120) {
+    const start = this.t;
+    const dur = 2400;
+    const opened = (t: number) => (t - start <= dur ? (1 - Math.cos((2 * Math.PI * (t - start)) / dur)) / 2 : 0);
+    this.hold(dur + 600, (t) => frame(deg(opened(t)), { elbowSpread: closed + (open - closed) * opened(t) }));
+  }
+  stages(): StageName[] {
     return this.events.filter((e) => e.type === 'stage').map((e) => (e as { stage: StageName }).stage);
   }
   cues(): string[] {
@@ -180,13 +187,24 @@ describe('SessionEngine', () => {
         else if (stage === 'symptoms') d.engine.submitSymptoms({ armHeaviness: false, armpitCord: false, note: '' });
         else if (stage === 'rest' || stage === 'position' || stage === 'calibrate') d.hold(p.restMs + 2600, () => frame(10, pose()));
         else if (EXERCISES[d.engine.block!.exerciseId].measure === 'roll') d.roll();
+        else if (EXERCISES[d.engine.block!.exerciseId].measure === 'wing') d.wing();
         else d.rep(peak, (deg) => ({ ...pose(), ...(deg > 60 ? { earLift: 0.1, trunkLeanDeg: 20, elbowDeg: 120 } : {}) }));
       }
       expect(d.stages()).toContain('done');
       for (const e of d.events) if (e.type === 'cue') spoken.add(e.cue.text);
     };
     run({ ...buildExercisePlan(1, 'both', [{ exerciseId: 'side_raise', ceilingDeg: 90, goalDeg: null, reps: 3, sets: 2 }, { exerciseId: 'scaption', ceilingDeg: 97, goalDeg: null, reps: 2, sets: 1 }]), restMs: 500 }, 110);
-    run({ ...buildExercisePlan(2, 'left', [{ exerciseId: 'shoulder_roll', ceilingDeg: null, goalDeg: null, reps: 2, sets: 1 }, { exerciseId: 'wall_walk', ceilingDeg: 120, goalDeg: null, reps: 2, sets: 1 }]), restMs: 500 }, 110);
+    run(
+      {
+        ...buildExercisePlan(2, 'left', [
+          { exerciseId: 'shoulder_roll', ceilingDeg: null, goalDeg: null, reps: 2, sets: 1 },
+          { exerciseId: 'wall_walk', ceilingDeg: 120, goalDeg: null, reps: 2, sets: 1 },
+          { exerciseId: 'elbow_wing', ceilingDeg: null, goalDeg: null, reps: 2, sets: 1 },
+        ]),
+        restMs: 500,
+      },
+      110,
+    );
     run(buildRangeCheckPlan(1, ['left'], ['side_raise']), 120);
     expect([...spoken].filter((line) => !recorded.has(line))).toEqual([]);
     expect(spoken.size).toBeGreaterThan(10);
@@ -207,5 +225,43 @@ describe('SessionEngine', () => {
     expect(d.engine.getSnapshot().stage).toBe('pain');
     expect(d.cues()).not.toContain('hike');
     expect(d.engine.result.sets[0].reps.every((r) => !r.overCeiling && !r.shoulderHike)).toBe(true);
+  });
+
+  it('counts elbow winging from together to wide and back, not lifting the hands into place', () => {
+    const d = new Driver(new SessionEngine(plan({ exerciseId: 'elbow_wing', ceilingDeg: null, reps: 2 })));
+    d.hold(3000, () => frame(10));
+    // Lifting the hands behind the head swings the elbows wide on the way up.
+    const start = d.t;
+    d.hold(1500, (t) => frame(10 + Math.min(1, (t - start) / 1000) * 110, { elbowSpread: 1.8 }));
+    d.hold(800, () => frame(120, { elbowSpread: 0.5 }));
+    expect(d.events.filter((e) => e.type === 'rep')).toHaveLength(0);
+    d.wing();
+    d.wing();
+    expect(d.events.filter((e) => e.type === 'rep')).toHaveLength(2);
+    expect(d.engine.getSnapshot().stage).toBe('pain');
+  });
+
+  it("counts a stiff patient's smaller winging, with the elbows dropping as they come together", () => {
+    const d = new Driver(new SessionEngine(plan({ exerciseId: 'elbow_wing', ceilingDeg: null, reps: 2 })));
+    d.hold(3000, () => frame(10));
+    const start = d.t;
+    d.hold(1500, (t) => frame(10 + Math.min(1, (t - start) / 1000) * 85, { elbowSpread: 1.6 }));
+    d.hold(800, () => frame(55, { elbowSpread: 1.05 }));
+    // Camera jitter while holding still isn't a rep.
+    d.hold(2000, (t) => frame(55, { elbowSpread: 1.05 + 0.1 * Math.sin(t / 50) }));
+    expect(d.events.filter((e) => e.type === 'rep')).toHaveLength(0);
+    const elbowsLift = (opened: number) => 55 + 40 * opened;
+    d.wing(1.05, 1.55, elbowsLift);
+    d.wing(1.05, 1.55, elbowsLift);
+    expect(d.events.filter((e) => e.type === 'rep')).toHaveLength(2);
+  });
+
+  it("doesn't flag the bent elbow that walking the fingers up a wall needs", () => {
+    const d = new Driver(new SessionEngine(plan({ exerciseId: 'wall_walk', ceilingDeg: null, reps: 2 })));
+    d.hold(3000, () => frame(10));
+    d.rep(130, () => ({ elbowDeg: 110 }));
+    d.rep(130, () => ({ elbowDeg: 110 }));
+    expect(d.events.filter((e) => e.type === 'rep')).toHaveLength(2);
+    expect(d.cues()).not.toContain('elbow');
   });
 });

@@ -28,8 +28,8 @@ export const LM = {
 
 export function sideLandmarks(side: Side) {
   return side === 'left'
-    ? { shoulder: LM.LEFT_SHOULDER, elbow: LM.LEFT_ELBOW, wrist: LM.LEFT_WRIST, hip: LM.LEFT_HIP, ear: LM.LEFT_EAR, otherShoulder: LM.RIGHT_SHOULDER, otherHip: LM.RIGHT_HIP }
-    : { shoulder: LM.RIGHT_SHOULDER, elbow: LM.RIGHT_ELBOW, wrist: LM.RIGHT_WRIST, hip: LM.RIGHT_HIP, ear: LM.RIGHT_EAR, otherShoulder: LM.LEFT_SHOULDER, otherHip: LM.LEFT_HIP };
+    ? { shoulder: LM.LEFT_SHOULDER, elbow: LM.LEFT_ELBOW, wrist: LM.LEFT_WRIST, hip: LM.LEFT_HIP, ear: LM.LEFT_EAR, otherShoulder: LM.RIGHT_SHOULDER, otherElbow: LM.RIGHT_ELBOW, otherHip: LM.RIGHT_HIP }
+    : { shoulder: LM.RIGHT_SHOULDER, elbow: LM.RIGHT_ELBOW, wrist: LM.RIGHT_WRIST, hip: LM.RIGHT_HIP, ear: LM.RIGHT_EAR, otherShoulder: LM.LEFT_SHOULDER, otherElbow: LM.LEFT_ELBOW, otherHip: LM.LEFT_HIP };
 }
 
 export const sub = (a: Vec2, b: Vec2): Vec2 => ({ x: a.x - b.x, y: a.y - b.y });
@@ -98,6 +98,7 @@ export function computeMetrics(landmarks: RawLandmark[], side: Side, view: Camer
     trunkLeanDeg: trunkLeanDeg(midShoulder, midHip),
     earLift: (shoulder.y - ear.y) / torso,
     facingRatio: dist(shoulder, px(ix.otherShoulder)) / torso,
+    elbowSpread: Math.abs(elbow.x - px(ix.otherElbow).x) / Math.max(1, Math.abs(shoulder.x - px(ix.otherShoulder).x)),
     confidence,
   };
 }

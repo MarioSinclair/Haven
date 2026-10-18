@@ -2,9 +2,10 @@ import type { AffectedSide, CameraView, ExerciseId, Phase, Side } from './types'
 
 /**
  * How the camera counts an exercise: each raise and its peak angle (the only kind that measures
- * range, so the only kind with a limit or goal), or each shoulder roll.
+ * range, so the only kind with a limit or goal), each shoulder roll, or each elbow-winging cycle.
+ * Rolls and winging are camera only: the band measures one upper arm, not shoulders or elbows.
  */
-export type Measure = 'raise' | 'roll';
+export type Measure = 'raise' | 'roll' | 'wing';
 
 export interface Exercise {
   id: ExerciseId;
@@ -17,6 +18,8 @@ export interface Exercise {
   /** On screen during the exercise, beside the animated demo. */
   brief: string;
   measure: Measure;
+  /** The elbow bends as part of the move, so the straight-elbow check is off. */
+  elbowMayBend?: boolean;
 }
 
 export const EXERCISES: Record<ExerciseId, Exercise> = {
@@ -47,14 +50,16 @@ export const EXERCISES: Record<ExerciseId, Exercise> = {
     instruction: 'Turn so your working arm is closest to the camera. Raise your arm straight in front of you, then lower slowly.',
     brief: 'Straight in front of you. Lower slowly.',
   },
+  // Side-on to the wall and facing the camera, the camera's best angle for measuring the arm.
   wall_walk: {
     id: 'wall_walk',
     name: 'Wall walk',
     short: 'Wall walk',
-    view: 'side',
+    view: 'front',
     measure: 'raise',
-    instruction: 'Stand facing a wall with your working arm closest to the camera. Walk your fingers up the wall as high as is comfortable, then walk them back down.',
-    brief: 'Walk your fingers up the wall, then back down.',
+    elbowMayBend: true,
+    instruction: 'Stand side-on to a wall with your working arm next to it, facing the camera. Walk your fingers up the wall as high as is comfortable, then walk them back down.',
+    brief: 'Walk your fingers up the wall beside you, then back down.',
   },
   shoulder_roll: {
     id: 'shoulder_roll',
@@ -64,6 +69,15 @@ export const EXERCISES: Record<ExerciseId, Exercise> = {
     measure: 'roll',
     instruction: 'Face the camera with your arms relaxed. Gently roll your shoulders up, back and down. Small rolls are fine.',
     brief: 'Gently up, back and down. Small rolls are fine.',
+  },
+  elbow_wing: {
+    id: 'elbow_wing',
+    name: 'Elbow winging',
+    short: 'Winging',
+    view: 'front',
+    measure: 'wing',
+    instruction: 'Face the camera and clasp your hands behind your head, elbows together in front. Open your elbows out wide, then bring them back together.',
+    brief: 'Hands behind your head. Elbows out wide, then back together.',
   },
 };
 
@@ -98,6 +112,7 @@ export const DEFAULT_PROTOCOL: Record<Phase, { label: string; prescriptions: Pre
       { exerciseId: 'side_raise', ceilingDeg: null, goalDeg: null, reps: 10, sets: 2 },
       { exerciseId: 'scaption', ceilingDeg: null, goalDeg: null, reps: 10, sets: 2 },
       { exerciseId: 'wall_walk', ceilingDeg: null, goalDeg: null, reps: 5, sets: 2 },
+      { exerciseId: 'elbow_wing', ceilingDeg: null, goalDeg: null, reps: 8, sets: 1 },
     ],
   },
   3: {
@@ -107,6 +122,7 @@ export const DEFAULT_PROTOCOL: Record<Phase, { label: string; prescriptions: Pre
       { exerciseId: 'scaption', ceilingDeg: null, goalDeg: null, reps: 12, sets: 3 },
       { exerciseId: 'forward_raise', ceilingDeg: null, goalDeg: null, reps: 12, sets: 3 },
       { exerciseId: 'wall_walk', ceilingDeg: null, goalDeg: null, reps: 8, sets: 2 },
+      { exerciseId: 'elbow_wing', ceilingDeg: null, goalDeg: null, reps: 10, sets: 2 },
     ],
   },
 };

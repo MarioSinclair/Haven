@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { APP_NAME } from '../lib/brand';
 import { EASE, gsap, reducedMotion, useGSAP } from '../lib/motion';
+import { AmbientBackground } from './AmbientBackground';
 import { Logo } from './Logo';
 
 /** The pull approaches this length asymptotically, like a stiffening spring. */
@@ -31,7 +32,7 @@ export function RibbonGate({ onContinue, continueLabel, note }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const [phase, setPhaseState] = useState<Phase>('idle');
   const phaseRef = useRef<Phase>('idle');
-  const actions = useRef<{ autoPull: () => void; skip: () => void } | null>(null);
+  const actions = useRef<{ autoPull: () => void } | null>(null);
 
   const setPhase = (p: Phase) => {
     if (phaseRef.current === p) return;
@@ -46,6 +47,7 @@ export function RibbonGate({ onContinue, continueLabel, note }: Props) {
       const cord = q('.cord')[0] as HTMLElement;
       const anchor = q('.ribbon-anchor')[0] as HTMLElement;
       const slot = q('.gate-logo')[0] as HTMLElement;
+      const name = q('.gate-brand-name')[0] as HTMLElement;
       const bloom = q('.gate-bloom')[0] as HTMLElement;
       const still = reducedMotion();
       // Resting cord length, from the CSS so small screens can shorten it.
@@ -73,6 +75,21 @@ export function RibbonGate({ onContinue, continueLabel, note }: Props) {
       const unstretch = (y: number) => -MAX_PULL * Math.log(1 - Math.min(0.99, Math.max(0, y) / MAX_PULL));
       const grab = { active: false, id: -1, x: 0, y: 0, rawX0: 0, rawY0: 0 };
       let enabled = true;
+
+      // While it's left alone, the ribbon gives a small tug of its own every few seconds, so it
+      // reads as something to pull.
+      let nudge: ReturnType<typeof gsap.delayedCall> | null = null;
+      const tug = () => {
+        if (phaseRef.current === 'open') return;
+        if (phaseRef.current === 'idle' && !grab.active) {
+          gsap
+            .timeline()
+            .to(ribbon, { y: 30, duration: 0.3, ease: 'power2.in', overwrite: 'auto' })
+            .to(ribbon, { y: 0, duration: 1.2, ease: 'elastic.out(1, 0.3)' });
+        }
+        nudge = gsap.delayedCall(4, tug);
+      };
+      if (!still) nudge = gsap.delayedCall(2.5, tug);
 
       const onDown = (e: PointerEvent) => {
         if (!enabled || e.button > 0) return;
@@ -147,7 +164,7 @@ export function RibbonGate({ onContinue, continueLabel, note }: Props) {
         if (still) {
           gsap.ticker.remove(syncCord);
           gsap.set([ribbon, cord], { autoAlpha: 0 });
-          gsap.set(slot, { autoAlpha: 1 });
+          gsap.set([slot, name], { autoAlpha: 1 });
           gsap.set(root.current, { backgroundColor: '#ffffff' });
           reveal();
           return;
@@ -183,6 +200,7 @@ export function RibbonGate({ onContinue, continueLabel, note }: Props) {
             'lights',
           )
           .to(slot, { autoAlpha: 1, duration: 0.18 }, '-=0.12')
+          .to(name, { autoAlpha: 1, duration: 0.5 }, '<')
           .to(ribbon, { autoAlpha: 0, duration: 0.12 }, '<')
           .fromTo(q('.gate-login > *'), { autoAlpha: 0, y: 26 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: EASE, stagger: 0.08 }, '-=0.4');
       };
@@ -195,24 +213,12 @@ export function RibbonGate({ onContinue, continueLabel, note }: Props) {
           setPhase('armed');
           gsap.to(ribbon, { y: THRESHOLD + 30, rotation: 0, duration: still ? 0 : 0.5, ease: 'power2.inOut', onComplete: launch });
         },
-        skip: () => {
-          if (phaseRef.current === 'open') return;
-          setPhase('open');
-          drag.disable();
-          sway?.kill();
-          gsap.killTweensOf(ribbon);
-          gsap.ticker.remove(syncCord);
-          gsap.to([ribbon, cord, q('.gate-intro')[0]], { autoAlpha: 0, duration: still ? 0 : 0.25 });
-          gsap.to(root.current, { backgroundColor: '#ffffff', duration: still ? 0 : 0.4 });
-          gsap.to(slot, { autoAlpha: 1, duration: still ? 0 : 0.3 });
-          if (still) reveal();
-          else gsap.fromTo(q('.gate-login > *'), { autoAlpha: 0, y: 20 }, { autoAlpha: 1, y: 0, duration: 0.6, ease: EASE, stagger: 0.06, delay: 0.15 });
-        },
       };
 
       return () => {
         gsap.ticker.remove(syncCord);
         drag.kill();
+        nudge?.kill();
       };
     },
     { scope: root },
@@ -220,23 +226,15 @@ export function RibbonGate({ onContinue, continueLabel, note }: Props) {
 
   return (
     <div className={`gate ${phase === 'open' ? 'open' : ''}`} ref={root}>
+      {/* The app's own gradient, faded in when the light comes on. */}
+      <AmbientBackground />
       <nav className="topbar gate-topbar">
         <span className="brand">
           <span className="gate-logo">
             <Logo animate={false} />
           </span>
-          <span>{APP_NAME}</span>
+          <span className="gate-brand-name">{APP_NAME}</span>
         </span>
-        <div className="topbar-right">
-          <a className="quiet-link" href="/judges">
-            For judges
-          </a>
-          {phase !== 'open' && (
-            <button className="link" onClick={() => actions.current?.skip()}>
-              Skip
-            </button>
-          )}
-        </div>
       </nav>
 
       <main className="gate-main">
@@ -255,16 +253,20 @@ export function RibbonGate({ onContinue, continueLabel, note }: Props) {
         </button>
 
         <div className="gate-intro">
-          <p className="eyebrow">Your personal post-mastectomy rehab coach</p>
           <p className={`pull-hint ${phase}`} aria-live="polite">
             {HINT[phase]}
           </p>
         </div>
 
         <section className="gate-login" aria-hidden={phase !== 'open'}>
-          <p className="eyebrow">Welcome</p>
-          <h1>Let's get your reach back.</h1>
-          <p className="muted">Guided shoulder exercises with live feedback, and a clear picture of your progress for you and your physical therapist.</p>
+          <p className="eyebrow">Welcome to</p>
+          <h1 className="gate-name">{APP_NAME}</h1>
+          <p className="gate-slogan">
+            Recover at home, <em>never alone</em>.
+          </p>
+          <p className="muted">
+            Your personal post-mastectomy rehab coach: guided exercises at home with live feedback, and your physical therapist following your progress every step of the way.
+          </p>
           <div className="inline gate-actions">
             <button className="primary" onClick={onContinue} tabIndex={phase === 'open' ? 0 : -1}>
               {continueLabel}

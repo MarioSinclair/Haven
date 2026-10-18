@@ -5,12 +5,12 @@
 //   node db/scripts/generate-seed.mjs              # last session = yesterday (New York time)
 //   node db/scripts/generate-seed.mjs --end 2026-10-20
 //
-// The story, so the deterministic flag rules have something real to find:
+// The story, so the deterministic flag rules have something real to find, and only that:
 //   day -6      pre-op range check on both arms (the reference for progress)
-//   days 0–9    phase 1, drains in, 90° limit; a few reps creep past it, and on day 6 the band
-//               logs reaches above 90° in daily life
+//   days 0–9    phase 1, drains in, 90° limit; the patient stays under it, in sessions and at home
 //   day 10      drains out → phase 2, range climbs quickly
-//   days 15–17  axillary cording: side-raise range drops ~17%, pain rises, daily arm use falls
+//   days 15–17  axillary cording: side-raise range drops ~17%; pain, arm use and form shift a
+//               little, short of their flags. Two flags: cording reported, side-raise range down.
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -80,12 +80,12 @@ const CORDING_FROM = 15;
 const PRE_OP = { left: { side_raise: 172, scaption: 168 }, right: { side_raise: 176, scaption: 171 } };
 
 function painFor(d) {
-  if (d >= CORDING_FROM) return 4.5 + (d - CORDING_FROM) * 0.6;
+  if (d >= CORDING_FROM) return 3 + (d - CORDING_FROM) * 0.3;
   if (d < DRAINS_OUT_DAY) return 5 - (d - 2) * 0.3;
   return 2.8 - (d - DRAINS_OUT_DAY) * 0.2;
 }
 function hikeRate(d) {
-  if (d >= CORDING_FROM) return 0.3;
+  if (d >= CORDING_FROM) return 0.12;
   return Math.max(0.08, 0.38 - d * 0.022);
 }
 
@@ -101,9 +101,9 @@ function addSession({ dayIndex, kind, phase, blocks, painBase, bandOn }) {
       const pain = painBase === null ? null : Math.max(0, Math.min(10, Math.round(painBase + gauss(0, 0.6) + setIndex * 0.3)));
       rows.sets.push([setId, id, b.exerciseId, b.side, setIndex, b.ceiling, b.reps, pain]);
       for (let i = 1; i <= b.reps; i++) {
-        // Rep 3 of the first set is the session best (sometimes just past the limit in phase 1);
+        // Rep 3 of the first set is the session best;
         // the rest fall a little short of the usual best, and second sets tire.
-        const peak = i === 3 && setIndex === 0 ? (b.topRep ?? b.best) : b.best - Math.abs(gauss(0, 3.5)) - setIndex * 1.5;
+        const peak = i === 3 && setIndex === 0 ? b.best : b.best - Math.abs(gauss(0, 3.5)) - setIndex * 1.5;
         const fromBand = bandOn && chance(0.05);
         const imuPeak = bandOn ? peak + gauss(-1.2, 2.2) : null;
         clock += between(3, 4.5) / 60;
@@ -120,7 +120,7 @@ function addSession({ dayIndex, kind, phase, blocks, painBase, bandOn }) {
           fromBand ? 'imu' : 'camera',
           b.ceiling !== null && peak > b.ceiling,
           kind === 'exercise' && chance(hikeRate(dayIndex)),
-          kind === 'exercise' && chance(dayIndex >= CORDING_FROM ? 0.15 : 0.06),
+          kind === 'exercise' && chance(0.06),
           kind === 'exercise' && chance(0.05),
           imuPeak === null ? null : r1(imuPeak),
         ]);
@@ -155,11 +155,10 @@ for (const d of SESSION_DAYS) {
   const sideBest = SIDE_RAISE_BEST[d];
   // Cording limits abduction most; scaption drops less during the setback.
   const scapBest = d >= CORDING_FROM ? SIDE_RAISE_BEST[14] + 4 - (d - 14) * 4 : sideBest + 4;
-  // In phase 1 the patient stays just under the limit, but late in the phase one rep sometimes slips past it.
+  // In phase 1 the patient stays just under the limit.
   const block = (exerciseId, target) => {
     const best = ceiling === null ? target : Math.min(target, ceiling - 1);
-    const topRep = ceiling !== null && target > 84 && chance(0.6) ? ceiling + between(0.5, 3) : null;
-    return { exerciseId, side: 'left', sets: 2, reps: 10, ceiling, best, topRep };
+    return { exerciseId, side: 'left', sets: 2, reps: 10, ceiling, best };
   };
   const session = addSession({
     dayIndex: d,
@@ -178,7 +177,7 @@ for (const d of SESSION_DAYS) {
 
 // ---- daily use from the band, hourly buckets 08:00–21:00 ----
 function activeMinutesBase(d) {
-  if (d >= CORDING_FROM) return 16;
+  if (d >= CORDING_FROM) return 25;
   if (d < 5) return 13;
   if (d < DRAINS_OUT_DAY) return 21;
   return 29;
@@ -191,9 +190,6 @@ for (let d = 1; d <= LAST_DAY; d++) {
     let raises = 0;
     if (d < DRAINS_OUT_DAY) {
       maxElev = Math.min(88, between(50, 84) + d);
-      // Day 6 afternoon: reached up to a kitchen shelf during the 90° limit phase.
-      if (d === 6 && hour === 15) [maxElev, raises] = [104, 3];
-      if (d === 7 && hour === 11) [maxElev, raises] = [95, 1];
     } else if (d < CORDING_FROM) {
       maxElev = r1(between(85, 108) + (d - DRAINS_OUT_DAY) * 2.5);
       raises = maxElev > 90 ? 1 + Math.floor(between(0, 3)) : 0;
@@ -206,21 +202,33 @@ for (let d = 1; d <= LAST_DAY; d++) {
 }
 
 // ---- write ----
-const sql = `-- Generated by supabase/scripts/generate-seed.mjs (end date ${END}). Do not edit by hand.
+const sql = `-- Generated by db/scripts/generate-seed.mjs (end date ${END}). Do not edit by hand.
 -- Demo patient: surgery ${SURGERY}, drains out ${day(DRAINS_OUT_DAY)}, cording from ${day(CORDING_FROM)}.
+-- Reloading keeps the patient's record and care plan as a clinician left them (name, phase,
+-- exercises, note, sign-in email) and replaces only the generated history.
 begin;
 
-delete from patients where id = ${q(PATIENT_ID)};
-
 insert into patients (id, display_name, affected_side, surgery_type, surgery_date, current_phase) values
-  (${q(PATIENT_ID)}, 'Maya (demo)', 'left', 'Left mastectomy with axillary lymph node dissection', ${q(SURGERY)}, 2);
+  (${q(PATIENT_ID)}, 'Maya (demo)', 'left', 'Left mastectomy with axillary lymph node dissection', ${q(SURGERY)}, 2)
+on conflict (id) do update set surgery_date = excluded.surgery_date;
 
-${insert('prescriptions', ['patient_id', 'phase', 'exercise_id', 'ceiling_deg', 'goal_deg', 'reps_target', 'sets_target', 'set_by'], [
-  [PATIENT_ID, 1, 'side_raise', 90, null, 10, 2, 'Demo PT'],
-  [PATIENT_ID, 1, 'scaption', 90, null, 10, 2, 'Demo PT'],
-  [PATIENT_ID, 2, 'side_raise', null, null, 10, 2, 'Demo PT'],
-  [PATIENT_ID, 2, 'scaption', null, null, 10, 2, 'Demo PT'],
-])}
+-- Sets, reps, symptom logs and band samples go with their sessions. Reports were written from the old history.
+delete from sessions where patient_id = ${q(PATIENT_ID)};
+delete from baselines where patient_id = ${q(PATIENT_ID)};
+delete from daily_use where patient_id = ${q(PATIENT_ID)};
+delete from flags where patient_id = ${q(PATIENT_ID)};
+delete from reports where patient_id = ${q(PATIENT_ID)};
+
+-- The default plan, only for a patient who has none yet.
+insert into prescriptions (patient_id, phase, exercise_id, ceiling_deg, goal_deg, reps_target, sets_target, set_by)
+select v.* from (values
+  (${q(PATIENT_ID)}::uuid, 1, 'side_raise', 90::real, null::real, 10, 2, 'Demo PT'),
+  (${q(PATIENT_ID)}::uuid, 1, 'scaption', 90, null, 10, 2, 'Demo PT'),
+  (${q(PATIENT_ID)}::uuid, 2, 'side_raise', null, null, 10, 2, 'Demo PT'),
+  (${q(PATIENT_ID)}::uuid, 2, 'scaption', null, null, 10, 2, 'Demo PT')
+) as v (patient_id, phase, exercise_id, ceiling_deg, goal_deg, reps_target, sets_target, set_by)
+where not exists (select 1 from prescriptions p where p.patient_id = v.patient_id);
+
 ${insert('baselines', ['patient_id', 'exercise_id', 'side', 'source', 'peak_deg', 'measured_at'], rows.baselines)}
 ${insert('sessions', ['id', 'patient_id', 'kind', 'phase', 'started_at', 'ended_at'], rows.sessions)}
 ${insert('sets', ['id', 'session_id', 'exercise_id', 'side', 'set_index', 'ceiling_deg', 'reps_target', 'pain'], rows.sets)}
