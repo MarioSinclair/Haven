@@ -17,9 +17,9 @@ const DEMO_VIDEO = '';
 const LIVE_DOMAIN = ''; // e.g. 'example.com' once the GoDaddy domain points at the deployment
 const REPO_URL = '';
 const TEAM: { name: string; role: string }[] = [
-  { name: 'Teammate 1', role: 'Camera tracking and session engine' },
-  { name: 'Teammate 2', role: 'Armband firmware and Bluetooth' },
-  { name: 'Teammate 3', role: 'Server, Tiger Data, dashboard and Gemini report' },
+  { name: 'Mario Sinclair', role: 'Camera tracking and session engine' },
+  { name: 'Mohamed Abdelmaksoud', role: 'Armband firmware and Bluetooth' },
+  { name: 'Omar Rifaie', role: 'Server, Tiger Data, dashboard and Gemini report' },
 ];
 // ---------------------------------------------------------------------------------------------
 
