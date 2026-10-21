@@ -1,6 +1,6 @@
 # Haven
 
-*Recover at home, never alone.*
+*Recover at home, never alone!*
 
 Haven is a personal post-mastectomy rehabilitation coach. A laptop camera, plus an optional ESP32 armband, tracks arm range live, keeps patients within their PT's limits and coaches by voice. Physical therapists set each patient's phase, exercises and limits and follow their progress; patients see their plan and how far they've come. Safety rules are plain code; Gemini only writes the report prose.
 
