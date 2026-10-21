@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" alt="Haven logo" width="160">
+  <img src="docs/logo.png" alt="Haven logo" width="320">
 </p>
 
 # Haven
@@ -92,20 +92,6 @@ Both run in real-time mode (`materialized_only = false`), so a session shows up 
 - Sessions are written in one transaction, with reps and band samples batch inserted through `unnest` (one round trip per set, one for the whole band trace).
 - `001_schema.sql` defines `rom_daily` and `daily_use_daily` as plain views with the same columns, so the app also runs on ordinary Postgres; `db:setup` skips the Timescale migration where the extension isn't available.
 
-### What the dashboard reads
-
-| Source | Used for |
-|---|---|
-| `rom_daily` | Range of motion chart, form chart, camera vs band agreement, range and limit flags |
-| `daily_use_daily` | Daily arm use panel, low use and at-home limit flags |
-| `session_summary` (view over `sessions`, `sets`, `symptom_logs`) | Pain chart, session log, pain and symptom flags |
-| `band_samples` | The last session's armband trace, max pooled to 2 Hz in SQL so peaks survive |
-| `timescaledb_information` views and `hypertable_columnstore_stats` | The Database panel: chunks, columnstore chunks and compression ratio per table |
-| `patients`, `prescriptions`, `baselines` | The care plan and the reference each range is compared against |
-| `reports` | The latest Gemini report, with the exact stats it was given |
-
-The band as built doesn't keep its daily use log yet (see [Hardware](#hardware)), so the `daily_use` rows in the demo come from the seed data.
-
 ## Safety and trust
 
 - **Deterministic rules raise every flag.** [`flags.ts`](web/src/lib/flags.ts) flags range loss, rising or high pain, reported swelling or cording, low daily arm use, limit breaks in sessions and at home, more compensation and missed sessions. The same code runs in the server and the app, straight from the rollups.
@@ -132,7 +118,7 @@ The band speaks plain text over the Nordic UART service.
 - **Band to app:** one line per sample at 20 Hz: `ms, elevation°, rate °/s, gyro x, gyro y, gyro z, zeroed, limit°, over`
 - **App to band:** `z` zero the arm at rest, `c<deg>` set the limit (`c0` turns it off), `r<min>` set the movement reminder (`r0` turns it off), `m1` / `m0` mute and unmute, `b` test beep
 
-The band saves the limit and reminder, warns only once zeroed, and forgets the zero at power off. The app also supports a binary GATT protocol with a per minute daily use log for future firmware, and picks whichever service the band offers. The full contract is in [`web/src/lib/band/protocol.ts`](web/src/lib/band/protocol.ts).
+The band saves the limit and reminder, warns only once zeroed, and forgets the zero at power off. The app also supports a binary GATT protocol with a per minute daily use log for future firmware, and picks whichever service the band offers. Until the band keeps that log, the demo's `daily_use` rows come from the seed data. The full contract is in [`web/src/lib/band/protocol.ts`](web/src/lib/band/protocol.ts).
 
 ## Run it locally
 
@@ -185,7 +171,7 @@ Open the app in Chrome or Edge (Web Bluetooth). No armband? Press **Simulate ban
 
 ### Dev mode and missing keys
 
-- **No Auth0 keys:** the app runs in dev mode. There's no sign in, every request acts as the demo clinician, and the top bar switches between the Patient and Clinician sides. Sessions still save. This is for your own machine only: the server refuses to start without Auth0 if `web/dist` exists (delete it to run locally), and a Vercel deploy answers `503`.
+- **No Auth0 keys:** dev mode, for your own machine only. There's no sign in, every request acts as the demo clinician, and the top bar switches between the Patient and Clinician sides. The server won't start this way if `web/dist` exists, and a Vercel deploy answers `503`.
 - **Auth0 on the web app but not the server:** the app shows a notice instead of loading, so nobody silently gets the clinician view.
 - **No Gemini key:** everything works except generating reports. The voice pack is already in `web/public/voice`, so coaching still speaks.
 - **No database or server:** the web app runs offline with a placeholder patient. Sessions work but aren't saved.
@@ -194,48 +180,18 @@ Open the app in Chrome or Edge (Web Bluetooth). No armband? Press **Simulate ban
 
 | Folder | Command | What it does |
 |---|---|---|
-| `server` | `npm run dev` | API with reload on change |
 | `server` | `npm run db:setup` | Apply new migrations; add `-- --seed` to load the demo patient |
-| `server` | `npm test` / `npm run typecheck` | Vitest / TypeScript |
 | `server` | `npm run export-demo` | Save the demo patient's dashboard into the web app as an offline fallback |
 | `server` | `npm run voice-pack` | Record the coaching lines with Gemini text to speech |
-| `web` | `npm run dev` / `npm run build` | Vite dev server / production build |
-| `web` | `npm test` / `npm run typecheck` | Vitest / TypeScript |
+| both | `npm test` / `npm run typecheck` | Vitest / TypeScript |
 
 `node db/scripts/generate-seed.mjs` regenerates `db/seed.sql` so the demo data ends yesterday.
 
 ## Deploy
 
-Haven deploys to Vercel as one project, configured by [`vercel.json`](vercel.json):
+Haven deploys to Vercel as one project, configured by [`vercel.json`](vercel.json). [`server/scripts/vercel-build.mjs`](server/scripts/vercel-build.mjs) serves `web/dist` as static files and bundles the Express API with esbuild into a single Node 22 function; `/api/*` goes to the function, `/judges` to the judges page, and everything else to the single-page app. This works whether the project's Root Directory is the repo root or `server/`.
 
-1. **Install** runs `npm ci` in `web/` and `server/`.
-2. **Build** builds the web app, then [`server/scripts/vercel-build.mjs`](server/scripts/vercel-build.mjs) writes Vercel's Build Output: `web/dist` as static files, and the Express API bundled with esbuild into a single Node 22 function.
-3. **Routing** sends `/api/*` to the function, `/judges` to the judges page, and everything else to the single-page app.
-
-The commands work whether the Vercel project's Root Directory is the repo root or `server/`. Set the server variables and the `VITE_` variables in the Vercel project settings (Vite reads the `VITE_` ones at build time). Without `AUTH0_DOMAIN` and `AUTH0_AUDIENCE` the function answers `503` rather than running in dev mode.
-
-The custom domain [havenn.health](https://havenn.health) points at the Vercel project.
-
-## Project structure
-
-```
-Haven/
-├── db/
-│   ├── migrations/       001 schema, 002 Tiger Data layer, 003 to 006 additions
-│   ├── scripts/          generate-seed.mjs
-│   └── seed.sql          the simulated demo patient
-├── server/
-│   ├── src/              Express API: auth, routes, progress, reports, telemetry
-│   └── scripts/          db-setup, export-demo, voice-pack, vercel-build
-├── web/
-│   ├── src/
-│   │   ├── components/   patient screens, PT dashboard, judges page
-│   │   ├── hooks/        camera and pose loop
-│   │   └── lib/          pose, session engine, band, flags, voice, care plan (shared with the server)
-│   ├── public/voice/     recorded coaching lines
-│   └── judges/           /judges entry point
-└── vercel.json
-```
+Set the server variables and the `VITE_` variables in the Vercel project settings (Vite reads the `VITE_` ones at build time).
 
 ## What's next
 
@@ -245,6 +201,6 @@ Haven/
 
 ## Team
 
-- Omar Rifaie
-- Mohamed Abdelmaksoud
-- Mario Sinclair
+- [Omar Rifaie](https://github.com/omarrifaie)
+- [Mohamed Abdelmaksoud](https://github.com/MoMaksoud)
+- [Mario Sinclair](https://github.com/MarioSinclair)
